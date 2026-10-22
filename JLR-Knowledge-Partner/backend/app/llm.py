@@ -12,6 +12,7 @@ import math
 import threading
 import time
 from functools import lru_cache
+from pathlib import Path
 from typing import Protocol
 
 from .config import get_settings
@@ -126,16 +127,62 @@ class Reranker:
     """Cross-encoder: scores (query, passage) pairs jointly. Returns probabilities in 0..1."""
 
     def __init__(self, model_name: str):
+        path = get_settings().reranker_path
+        self._local: _LocalOnnxCrossEncoder | None = None
+        if path:  # a model folder on this PC: used as it is, nothing is downloaded and the name is not looked up
+            self._local = _LocalOnnxCrossEncoder(path)
+            self.name = f"local:{Path(path).name}"
+            return
         from fastembed.rerank.cross_encoder import TextCrossEncoder
 
         self.name = f"fastembed:{model_name}"
-        path = get_settings().reranker_path
-        self._model = TextCrossEncoder(model_name=model_name, **({"specific_model_path": path} if path else {}))
+        self._model = TextCrossEncoder(model_name=model_name)
 
     def score(self, query: str, passages: list[str]) -> list[float]:
         if not passages:
             return []
-        return [1 / (1 + math.exp(-s)) for s in self._model.rerank(query, passages)]
+        logits = self._local.rerank(query, passages) if self._local else self._model.rerank(query, passages)
+        return [1 / (1 + math.exp(-s)) for s in logits]
+
+
+class _LocalOnnxCrossEncoder:
+    """ms-marco MiniLM cross-encoder read straight from a local folder (onnxruntime + tokenizers, both installed with fastembed)."""
+
+    def __init__(self, folder: str, max_length: int = 512, batch_size: int = 32):
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+
+        root = Path(folder)
+        onnx = sorted(root.rglob("*.onnx"))
+        if not onnx:
+            raise FileNotFoundError(
+                f"No .onnx file under RERANKER_PATH '{folder}'. This reranker needs the ONNX version of the model "
+                "(e.g. the Xenova/ms-marco-MiniLM-L-6-v2 files); a PyTorch-only folder cannot be used. "
+                "Set RERANK_ENABLED=false to run without a reranker.")
+        # prefer the plain fp32 model over quantized variants
+        model_file = next((p for p in onnx if p.name == "model.onnx"), onnx[0])
+        tok_file = next((p for p in (model_file.parent / "tokenizer.json", root / "tokenizer.json") if p.exists()), None)
+        if tok_file is None:
+            raise FileNotFoundError(f"tokenizer.json not found next to {model_file} or in '{folder}'.")
+        self._session = ort.InferenceSession(str(model_file), providers=["CPUExecutionProvider"])
+        self._inputs = {i.name for i in self._session.get_inputs()}
+        self._tok = Tokenizer.from_file(str(tok_file))
+        self._tok.enable_truncation(max_length=max_length)
+        self._tok.enable_padding()
+        self._batch = batch_size
+
+    def rerank(self, query: str, passages: list[str]) -> list[float]:
+        import numpy as np
+
+        out: list[float] = []
+        for i in range(0, len(passages), self._batch):
+            enc = self._tok.encode_batch([(query, p) for p in passages[i:i + self._batch]])
+            feed = {"input_ids": np.array([e.ids for e in enc], dtype=np.int64),
+                    "attention_mask": np.array([e.attention_mask for e in enc], dtype=np.int64),
+                    "token_type_ids": np.array([e.type_ids for e in enc], dtype=np.int64)}
+            logits = self._session.run(None, {k: v for k, v in feed.items() if k in self._inputs})[0]
+            out.extend(float(x) for x in np.asarray(logits).reshape(len(enc), -1)[:, 0])
+        return out
 
 
 @lru_cache
