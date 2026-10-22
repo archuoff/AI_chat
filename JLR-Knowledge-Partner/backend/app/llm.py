@@ -103,7 +103,8 @@ class SparseEmbedder:
         from fastembed import SparseTextEmbedding
 
         self.name = f"fastembed:{model_name}"
-        self._model = SparseTextEmbedding(model_name=model_name)
+        path = get_settings().sparse_embedding_path
+        self._model = SparseTextEmbedding(model_name=model_name, **({"specific_model_path": path} if path else {}))
 
     @staticmethod
     def _pair(e) -> tuple[list[int], list[float]]:
@@ -128,7 +129,8 @@ class Reranker:
         from fastembed.rerank.cross_encoder import TextCrossEncoder
 
         self.name = f"fastembed:{model_name}"
-        self._model = TextCrossEncoder(model_name=model_name)
+        path = get_settings().reranker_path
+        self._model = TextCrossEncoder(model_name=model_name, **({"specific_model_path": path} if path else {}))
 
     def score(self, query: str, passages: list[str]) -> list[float]:
         if not passages:

@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     local_embedding_model: str = "BAAI/bge-small-en-v1.5"
     sparse_embedding_model: str = "Qdrant/bm25"
     reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+    sparse_embedding_path: str = ""  # optional local folder of the BM25 model (skips any download)
+    reranker_path: str = ""  # optional local folder of the reranker (ONNX) model (skips any download)
     rerank_enabled: bool = True
 
     # ---------------- Qdrant (empty URL -> embedded on-disk mode)
