@@ -215,3 +215,9 @@
     animation: none;
   }
 }
+
+/* Edge / IE draw their own show-password eye inside password fields; the app has its own toggle */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}
