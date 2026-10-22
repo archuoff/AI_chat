@@ -1,0 +1,350 @@
+[
+ {
+  "q": "What material is the BMW X5 cross car beam made of?",
+  "expect": {
+   "sheet": "CCB",
+   "text": "AM50"
+  },
+  "answer": [
+   "AM50"
+  ]
+ },
+ {
+  "q": "Compare CCB weight across vehicles",
+  "expect": {
+   "sheet": "CCB",
+   "text": "Weight Details"
+  },
+  "answer": [
+   "5.279",
+   "3.968",
+   "7.378",
+   "7.537",
+   "11.566"
+  ]
+ },
+ {
+  "q": "What is the part thickness of the Porsche Cayenne front bumper fascia?",
+  "expect": {
+   "sheet": "FRONT BUMPER FASCIA",
+   "row": 3
+  },
+  "answer": [
+   "2.8",
+   "3.2"
+  ]
+ },
+ {
+  "q": "Weight of the Mercedes GLC front bumper fascia",
+  "expect": {
+   "sheet": "FRONT BUMPER FASCIA",
+   "row": 2
+  },
+  "answer": [
+   "4.0"
+  ]
+ },
+ {
+  "q": "Which material is used for the Toyota bZ3 cross car beam?",
+  "expect": {
+   "sheet": "CCB",
+   "row": 6
+  },
+  "answer": [
+   "steel"
+  ]
+ },
+ {
+  "q": "centre console main molding material of the Cadillac Escalade IQ",
+  "expect": {
+   "sheet": "CENTRE CONSOLE MAIN MOLDING",
+   "row": 7
+  },
+  "answer": [
+   "PP-GF40"
+  ]
+ },
+ {
+  "q": "What is the yield strength of the Audi A5 CCB?",
+  "expect": {
+   "sheet": "CCB",
+   "row": 5
+  },
+  "answer": [
+   "500"
+  ]
+ },
+ {
+  "q": "CCB dimensions width height depth of the Mercedes GLC",
+  "expect": {
+   "sheet": "CCB",
+   "row": 3
+  },
+  "answer": [
+   "1405",
+   "540",
+   "260"
+  ]
+ },
+ {
+  "q": "What does requirement req-5256401-00139853 control?",
+  "expect": {
+   "text": "req-5256401-00139853"
+  }
+ },
+ {
+  "q": "What causes decoupling ring failures?",
+  "expect": {
+   "text": "Decoupling ring"
+  },
+  "answer": [
+   "broken"
+  ]
+ },
+ {
+  "q": "What is the severity of the dropped sensor failure?",
+  "expect": {
+   "text": "Dropped sensor"
+  },
+  "answer": [
+   "8"
+  ]
+ },
+ {
+  "q": "Who is the group leader of the ultrasonic sensor FMEA?",
+  "expect": {
+   "text": "Alejandro Presa Diago"
+  },
+  "answer": [
+   "Alejandro"
+  ]
+ },
+ {
+  "q": "Detection control for sensor beta angle elevation tolerance out of specification",
+  "expect": {
+   "text": "β-angle"
+  }
+ },
+ {
+  "q": "What is the effect when no voltage is supplied by the LOKI ECU to the sensors?",
+  "expect": {
+   "text": "No voltage supplied by LOKI ECU"
+  }
+ },
+ {
+  "q": "Which sensor failure causes are related to paint?",
+  "expect": {
+   "text": "Paint"
+  }
+ },
+ {
+  "q": "What happens if water collects in the sensor housing at low temperature?",
+  "expect": {
+   "text": "Water collects"
+  }
+ },
+ {
+  "q": "Who raised the PR AIMS issue and what was the solution?",
+  "expect": {
+   "text": "How to raise PR AIMS"
+  },
+  "answer": [
+   "Sanket"
+  ]
+ },
+ {
+  "q": "How do I get PCAR access for Gaydon?",
+  "expect": {
+   "text": "PCAR access Gaydon"
+  }
+ },
+ {
+  "q": "What was done to resolve the orange peel issue?",
+  "expect": {
+   "text": "Orange peel"
+  }
+ },
+ {
+  "q": "How to download and approve the PIR report?",
+  "expect": {
+   "text": "PIR report"
+  }
+ },
+ {
+  "q": "What frequency does the Continental ultrasonic sensor operate at?",
+  "expect": {
+   "file": "CONTI",
+   "text": "52kHz"
+  },
+  "answer": [
+   "52"
+  ]
+ },
+ {
+  "q": "How does the pitch angle relate to the sensor mounting height?",
+  "expect": {
+   "file": "CONTI",
+   "page": 10
+  }
+ },
+ {
+  "q": "Which standard is used for the vehicle field of view test?",
+  "expect": {
+   "file": "CONTI",
+   "text": "ISO 17386"
+  },
+  "answer": [
+   "17386"
+  ]
+ },
+ {
+  "q": "What is the minimum detachment force for the sensor holder?",
+  "expect": {
+   "file": "Design rule",
+   "text": "150 N"
+  },
+  "answer": [
+   "150"
+  ]
+ },
+ {
+  "q": "What burr size is acceptable around the drainage hole?",
+  "expect": {
+   "file": "Design rule",
+   "text": "0.2 mm"
+  },
+  "answer": [
+   "0.2"
+  ]
+ },
+ {
+  "q": "Which paint specification applies to the sensor membrane coating?",
+  "expect": {
+   "text": "STJLR.51.5241"
+  },
+  "answer": [
+   "STJLR.51.5241"
+  ]
+ },
+ {
+  "q": "Where should sensors be positioned relative to the exhaust pipe?",
+  "expect": {
+   "text": "RQ_330"
+  }
+ },
+ {
+  "q": "What does DCR stand for?",
+  "expect": {
+   "text": "Decoupling Ring"
+  },
+  "answer": [
+   "decoupling ring"
+  ]
+ },
+ {
+  "q": "What is the minimum bond flange for the carbon fiber bonnet?",
+  "expect": {
+   "file": "Bonnet",
+   "text": "18mm"
+  },
+  "answer": [
+   "18"
+  ]
+ },
+ {
+  "q": "What part thickness is recommended for carbon fiber parts?",
+  "expect": {
+   "file": "EDS_Carbon Fiber",
+   "text": "1 mm to 1.4 mm"
+  },
+  "answer": [
+   "1.4"
+  ]
+ },
+ {
+  "q": "How far apart should fixing clips be on carbon fiber parts?",
+  "expect": {
+   "text": "100-150mm"
+  },
+  "answer": [
+   "100"
+  ]
+ },
+ {
+  "q": "What is the frunk volume of the BMW i3?",
+  "expect": {
+   "file": "FRUNK",
+   "text": "58.8"
+  },
+  "answer": [
+   "58.8"
+  ]
+ },
+ {
+  "q": "How many mounting snaps does the heating element radome use?",
+  "expect": {
+   "file": "HEATING",
+   "text": "Mounting Snap"
+  },
+  "answer": [
+   "7"
+  ]
+ },
+ {
+  "q": "What gap is required between the grille and the carrier for the heating element?",
+  "expect": {
+   "text": "0,5mm GAP"
+  },
+  "answer": [
+   [
+    "0,5",
+    "0.5"
+   ]
+  ]
+ },
+ {
+  "q": "What is the minimum radius allowed for carbon fiber parts?",
+  "expect": {
+   "text": "minimum radii"
+  },
+  "answer": [
+   [
+    "1mm",
+    "1 mm"
+   ]
+  ]
+ },
+ {
+  "q": "what are the ADAS sensor listed in the study and which are classified as interior sensors",
+  "expect": {
+   "text": "USS Front S1"
+  },
+  "answer": [
+   "S1",
+   "S12"
+  ]
+ },
+ {
+  "q": "List the ultrasonic sensors and their package zones",
+  "expect": {
+   "text": "USS Rear S12"
+  },
+  "answer": [
+   "B4",
+   "D4",
+   "S12"
+  ]
+ },
+ {
+  "q": "What is the capital of France?",
+  "expect": null
+ },
+ {
+  "q": "What is the battery capacity of the Tesla Model 3?",
+  "expect": null
+ },
+ {
+  "q": "Explain the payroll process for new employees",
+  "expect": null
+ }
+]

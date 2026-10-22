@@ -1,0 +1,32 @@
+# API
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+pydantic>=2.7
+pydantic-settings>=2.3
+python-dotenv>=1.0
+
+# Orchestration / LLM (Azure OpenAI)
+langgraph>=1.0
+langgraph-checkpoint-sqlite>=2.0
+langchain-core>=1.0
+langchain-openai>=1.0
+langchain-text-splitters>=1.0
+azure-identity>=1.19   # Entra ID (keyless) auth for Azure OpenAI
+
+# Auth / accounts (SQLite by default; DATABASE_URL can point to Postgres)
+sqlalchemy>=2.0
+pyjwt>=2.9
+pwdlib[argon2]>=0.2.1
+
+# Vector store + local embeddings (no API key needed)
+qdrant-client>=1.12
+fastembed>=0.4
+
+# Document parsers
+pypdf>=5.0
+python-docx>=1.1
+python-pptx>=1.0
+openpyxl>=3.1
+pillow>=10.4   # pictures: read, thumbnail, convert for the vision model
+pandas>=2.2

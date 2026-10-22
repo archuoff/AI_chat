@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+/* Tata Technologies palette (from tatatechnologies.com: --wp--preset--color--*) */
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-display: "Manrope Variable", "Inter Variable", ui-sans-serif, sans-serif;
+
+  --color-tt-electric: #0000b3; /* electric-blue: primary */
+  --color-tt-electric-600: #1a1ad1;
+  --color-tt-navy: #001b5b; /* dark-blue: base */
+  --color-tt-midnight: #000c33;
+  --color-tt-machinery: #11216d; /* machinery-dark */
+  --color-tt-ink: #1b1d1e; /* dark-grey: text */
+  --color-tt-slate: #4e4b66;
+  --color-tt-mist: #f4f5fb; /* light-grey: canvas */
+  --color-tt-line: #e3e6f2;
+  --color-tt-periwinkle: #698cf7; /* des */
+  --color-tt-teal: #12c6b3; /* teal */
+  --color-tt-teal-tint: #a0e8e1;
+  --color-tt-green: #9eda8f; /* automotive-light */
+  --color-tt-green-tint: #c3e8bb;
+  --color-tt-auto-dark: #163d51;
+  --color-tt-amber: #f2a039; /* machinery-light */
+  --color-tt-amber-tint: #fdf5e7;
+  --color-tt-ember: #d75d27; /* erd */
+  --color-tt-purple: #c74eff;
+  --color-tt-purple-tint: #cec3fb;
+
+  --shadow-card: 0 1px 2px rgb(0 27 91 / 0.04), 0 8px 24px -12px rgb(0 27 91 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(0 27 91 / 0.05), 0 18px 40px -16px rgb(0 0 179 / 0.28);
+  --shadow-glow: 0 0 0 1px rgb(0 0 179 / 0.08), 0 10px 30px -10px rgb(0 0 179 / 0.45);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-tt-mist font-sans text-tt-ink antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display tracking-tight;
+  }
+  ::selection {
+    background: rgb(0 0 179 / 0.16);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-tt-periwinkle);
+    outline-offset: 2px;
+  }
+}
+
+@utility bg-tt-sidebar {
+  background:
+    radial-gradient(120% 60% at 0% 0%, rgb(0 0 179 / 0.55) 0%, transparent 60%),
+    radial-gradient(90% 50% at 100% 100%, rgb(18 198 179 / 0.18) 0%, transparent 60%),
+    linear-gradient(180deg, #001b5b 0%, #000c33 100%);
+}
+
+@utility bg-tt-canvas {
+  background:
+    radial-gradient(60% 40% at 100% 0%, rgb(105 140 247 / 0.12) 0%, transparent 70%),
+    radial-gradient(50% 35% at 0% 100%, rgb(18 198 179 / 0.08) 0%, transparent 70%),
+    #f4f5fb;
+}
+
+@utility bg-tt-electric-gradient {
+  background: linear-gradient(135deg, #0000b3 0%, #2b3bea 55%, #698cf7 100%);
+}
+
+@utility text-tt-gradient {
+  background: linear-gradient(100deg, #0000b3 0%, #3a4cf0 45%, #12c6b3 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@utility bg-grid {
+  background-image:
+    linear-gradient(rgb(0 27 91 / 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(0 27 91 / 0.045) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility fade-x {
+  mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 28px), transparent 100%);
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(0 27 91 / 0.18) transparent;
+}
+
+/* ---------- answer markdown ---------- */
+.md {
+  @apply text-[15.5px] leading-[1.75] text-tt-ink;
+}
+.md > * + * {
+  @apply mt-3.5;
+}
+.md h1,
+.md h2,
+.md h3 {
+  @apply mt-6 font-display font-bold text-tt-navy first:mt-0;
+}
+.md h1 {
+  @apply text-[19px];
+}
+.md h2 {
+  @apply text-[17px];
+}
+.md h3 {
+  @apply text-[15.5px];
+}
+.md strong {
+  @apply font-semibold text-tt-navy;
+}
+.md ul {
+  @apply list-disc space-y-1.5 pl-5 marker:text-tt-periwinkle;
+}
+.md ol {
+  @apply list-decimal space-y-1.5 pl-5 marker:font-semibold marker:text-tt-slate;
+}
+.md li > p {
+  @apply mt-1;
+}
+.md blockquote {
+  @apply border-l-2 border-tt-periwinkle/60 py-0.5 pl-4 text-[15px] text-tt-ink/90;
+}
+.md blockquote + blockquote {
+  @apply mt-2;
+}
+.md code {
+  @apply rounded-md bg-tt-mist px-1.5 py-0.5 font-mono text-[13px] text-tt-machinery;
+}
+.md hr {
+  @apply my-5 border-tt-line;
+}
+.md .table-wrap {
+  @apply my-1 overflow-x-auto rounded-2xl border border-tt-line bg-white scrollbar-thin;
+}
+.md table {
+  @apply w-full border-collapse text-left text-[14px] leading-relaxed;
+}
+.md thead {
+  @apply bg-[#f6f7fc];
+}
+.md th {
+  @apply border-b border-tt-line px-4 py-3 font-display text-[12.5px] font-semibold whitespace-nowrap text-tt-slate;
+}
+.md td {
+  @apply border-t border-tt-line/70 px-4 py-3 align-top;
+  min-width: 120px;
+  max-width: 340px;
+  overflow-wrap: anywhere;
+}
+.md tbody tr:first-child td {
+  @apply border-t-0;
+}
+.md td:last-child,
+.md th:last-child {
+  min-width: 0;
+}
+.md tbody tr {
+  @apply transition-colors;
+}
+.md tbody tr:hover {
+  @apply bg-[#f8f9ff];
+}
+.md a:not(.cite) {
+  @apply font-medium text-tt-electric underline decoration-tt-periwinkle/40 underline-offset-2;
+}
+
+.cite {
+  @apply mx-0.5 inline-flex h-[17px] min-w-[17px] -translate-y-[2px] cursor-pointer items-center justify-center rounded-full bg-tt-periwinkle/15 px-1 align-middle font-display text-[10px] font-bold text-tt-electric no-underline transition hover:bg-tt-electric hover:text-white;
+}
+
+.caret::after {
+  content: "";
+  @apply ml-0.5 inline-block h-4 w-[3px] translate-y-0.5 animate-pulse rounded-full bg-tt-electric;
+}
+
+/* shimmering status text while an answer is being prepared */
+@keyframes tt-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.shimmer-text {
+  background: linear-gradient(90deg, #4e4b66 0%, #4e4b66 35%, #0000b3 50%, #4e4b66 65%, #4e4b66 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: tt-shimmer 2.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    animation: none;
+  }
+}
