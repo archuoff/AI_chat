@@ -14,6 +14,7 @@ export function LoginView() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
+  const [remember, setRemember] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,7 +24,7 @@ export function LoginView() {
     setBusy(true)
     setError(null)
     try {
-      await api.login(username.trim(), password)
+      await api.login(username.trim(), password, remember)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -64,7 +65,7 @@ export function LoginView() {
       </div>
 
       {/* sign-in form */}
-      <div className="bg-tt-canvas flex flex-1 items-center justify-center px-6 py-12">
+      <div className="bg-tt-login flex flex-1 items-center justify-center px-6 py-12">
         <motion.form
           onSubmit={submit}
           initial={{ opacity: 0, y: 16 }}
@@ -78,14 +79,14 @@ export function LoginView() {
           <label className="mt-8 block">
             <span className="mb-1.5 block text-[12.5px] font-semibold text-tt-slate">Username</span>
             <span className="relative block">
-              <UserRound size={17} className="absolute top-1/2 left-3.5 -translate-y-1/2 text-tt-slate/60" />
+              <UserRound size={17} className="absolute top-1/2 left-3.5 -translate-y-1/2 text-tt-electric" />
               <input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} className={field} />
             </span>
           </label>
           <label className="mt-4 block">
             <span className="mb-1.5 block text-[12.5px] font-semibold text-tt-slate">Password</span>
             <span className="relative block">
-              <LockKeyhole size={17} className="absolute top-1/2 left-3.5 -translate-y-1/2 text-tt-slate/60" />
+              <LockKeyhole size={17} className="absolute top-1/2 left-3.5 -translate-y-1/2 text-tt-electric" />
               <input
                 type={show ? 'text' : 'password'}
                 autoComplete="current-password"
@@ -105,12 +106,22 @@ export function LoginView() {
             </span>
           </label>
 
+          <label className="mt-3.5 flex w-fit cursor-pointer items-center gap-2 text-[13px] text-tt-slate select-none">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              className="size-4 cursor-pointer rounded border-tt-line accent-tt-electric"
+            />
+            Remember me
+          </label>
+
           {error && <div className="mt-4 rounded-xl border border-tt-ember/30 bg-[#fdf0ea] px-3.5 py-2.5 text-[13px] text-[#8a3510]">{error}</div>}
 
           <button
             type="submit"
             disabled={busy || !username.trim() || !password}
-            className="bg-tt-electric-gradient mt-6 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-display text-[15px] font-semibold text-white shadow-[0_12px_28px_-12px_rgba(0,0,179,0.9)] transition hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+            className="bg-tt-electric-gradient mt-6 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-display text-[15px] font-semibold text-white shadow-[0_12px_28px_-12px_rgba(0,0,179,0.9)] transition duration-200 hover:-translate-y-px hover:scale-[1.015] hover:brightness-90 active:translate-y-0 active:scale-[0.99] disabled:translate-y-0 disabled:scale-100 disabled:opacity-50 disabled:brightness-100"
           >
             {busy ? <LoaderCircle size={18} className="animate-spin" /> : <ArrowRight size={18} />}
             {busy ? 'Signing in…' : 'Sign in'}

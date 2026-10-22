@@ -55,11 +55,11 @@ const send = <T,>(method: string, path: string, body?: unknown) =>
 
 export const api = {
   // ---- auth
-  login: async (username: string, password: string) => {
+  login: async (username: string, password: string, remember = true) => {
     const r = await json<{ access_token: string; expires_in: number; user: AuthUser }>(
       await request('/api/auth/login', jsonBody('POST', { username, password })),
     )
-    auth.set(r.access_token, r.user, r.expires_in)
+    auth.set(r.access_token, r.user, r.expires_in, remember)
     return r.user
   },
   changePassword: async (current_password: string, new_password: string) => {
