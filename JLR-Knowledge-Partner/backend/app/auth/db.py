@@ -62,6 +62,24 @@ class UsageEvent(Base):
     found: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class UploadDecision(Base):
+    """What the system suggested for an upload and what the SME chose: lets us measure the suggestions."""
+
+    __tablename__ = "upload_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    check_id: Mapped[str] = mapped_column(String(64), default="")
+    file_name: Mapped[str] = mapped_column(String(255), default="")
+    domain: Mapped[str] = mapped_column(String(64), default="")
+    intent: Mapped[str] = mapped_column(String(16), default="new")  # new | update
+    replaces: Mapped[str] = mapped_column(String(64), default="")  # doc_id of the document the SME chose to update
+    exact: Mapped[list] = mapped_column(JSON, default=list)
+    suggestions: Mapped[list] = mapped_column(JSON, default=list)  # [{doc_id, label, scores}]
+    result_status: Mapped[str] = mapped_column(String(16), default="")
+
+
 _engine = None
 SessionLocal = sessionmaker(expire_on_commit=False)
 

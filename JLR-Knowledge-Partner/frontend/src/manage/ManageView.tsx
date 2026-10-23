@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ArrowRightLeft, LoaderCircle, Lock, Plus, Search, X } from 'lucide-react'
+import { ArrowRightLeft, History, LoaderCircle, Lock, Plus, Search, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
@@ -26,6 +26,7 @@ export const ManageView = memo(function ManageView({ docs, onRefresh }: Props) {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [moving, setMoving] = useState(false)
   const [mobileDetail, setMobileDetail] = useState(false)
+  const [showReplaced, setShowReplaced] = useState(false)
 
   const loadDomains = () => api.domains().then(setDomains).catch(() => {})
   useEffect(() => {
@@ -37,12 +38,16 @@ export const ManageView = memo(function ManageView({ docs, onRefresh }: Props) {
     await loadDomains()
   }
 
+  // an updated version hides the document it replaced (kept, can be restored): shown only on request
+  const live = useMemo(() => (docs ?? []).filter((d) => !d.superseded), [docs])
+  const replacedCount = (docs?.length ?? 0) - live.length
+
   const shown = useMemo(() => {
     const term = q.trim().toLowerCase()
-    return (docs ?? []).filter(
+    return (showReplaced ? (docs ?? []) : live).filter(
       (d) => (!domainFilter || (d.domain ?? 'unassigned') === domainFilter) && (!term || d.file_name.toLowerCase().includes(term)),
     )
-  }, [docs, q, domainFilter])
+  }, [docs, live, showReplaced, q, domainFilter])
 
   // files grouped under their domain, in the registry's order; empty domains listed once at the bottom
   const groups = useMemo(() => {
@@ -54,7 +59,7 @@ export const ManageView = memo(function ManageView({ docs, onRefresh }: Props) {
     }
     return [...by.entries()].sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
   }, [shown, domains])
-  const emptyDomains = q.trim() || domainFilter ? [] : domains.filter((d) => d.id !== 'unassigned' && !(docs ?? []).some((x) => x.domain === d.id))
+  const emptyDomains = q.trim() || domainFilter ? [] : domains.filter((d) => d.id !== 'unassigned' && !live.some((x) => x.domain === d.id))
 
   // nothing is opened automatically: with no selection the library dashboard is shown
   const selected = (docs ?? []).find((d) => d.doc_id === selectedId) ?? null
@@ -72,7 +77,16 @@ export const ManageView = memo(function ManageView({ docs, onRefresh }: Props) {
 
   const detail = (onDeleted: () => void) =>
     selected && (
-      <DocDetail key={selected.doc_id} doc={selected} domains={domains} onChanged={refresh} onDeleted={onDeleted} onClose={() => setSelectedId(null)} />
+      <DocDetail
+        key={selected.doc_id}
+        doc={selected}
+        domains={domains}
+        related={(id) => (docs ?? []).find((d) => d.doc_id === id)}
+        onOpenDoc={setSelectedId}
+        onChanged={refresh}
+        onDeleted={onDeleted}
+        onClose={() => setSelectedId(null)}
+      />
     )
 
   return (
@@ -82,7 +96,7 @@ export const ManageView = memo(function ManageView({ docs, onRefresh }: Props) {
         <div className="space-y-3 px-4 pt-4 pb-3">
           <div className="flex items-center gap-2">
             <h2 className="font-display text-[15px] font-bold text-tt-navy">Documents</h2>
-            {docs && <span className="text-[12.5px] text-tt-slate">{docs.length}</span>}
+            {docs && <span className="text-[12.5px] text-tt-slate">{live.length}</span>}
             <button
               onClick={() => setUploadOpen(true)}
               className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-tt-electric px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-tt-electric-600"
@@ -99,6 +113,12 @@ export const ManageView = memo(function ManageView({ docs, onRefresh }: Props) {
               className="w-full rounded-lg border border-tt-line bg-tt-mist/50 py-2 pr-3 pl-9 text-[13px] outline-none transition focus:border-tt-periwinkle focus:bg-white"
             />
           </div>
+          {replacedCount > 0 && (
+            <label className="flex cursor-pointer items-center gap-2 text-[12px] text-tt-slate select-none">
+              <input type="checkbox" checked={showReplaced} onChange={(e) => setShowReplaced(e.target.checked)} className="h-3.5 w-3.5 accent-[#0000b3]" />
+              Show replaced versions ({replacedCount})
+            </label>
+          )}
           {domainFilter && (
             <div className="flex items-center gap-2 text-[12px] text-tt-slate">
               Showing
@@ -198,8 +218,14 @@ export const ManageView = memo(function ManageView({ docs, onRefresh }: Props) {
                         </div>
                         <div className="text-[11.5px] text-tt-slate">
                           {fileVisual(d.file_type).label} · {d.records ? plural(d.records, 'record') : plural(d.chunks, 'chunk')}
+                          {d.superseded && <span className="ml-1.5 font-semibold text-[#a8641a]">· replaced</span>}
                         </div>
                       </div>
+                      {d.superseded && (
+                        <span title="Replaced by a newer version: hidden from the assistant">
+                          <History size={13} className="text-[#a8641a]" />
+                        </span>
+                      )}
                       {d.confidential && (
                         <span title="Confidential: super users and developers only">
                           <Lock size={13} className="text-[#a8471a]" />
@@ -231,7 +257,7 @@ export const ManageView = memo(function ManageView({ docs, onRefresh }: Props) {
             refresh()
           })
         ) : docs ? (
-          <LibraryDashboard docs={docs} domains={domains} onOpen={setSelectedId} onDomain={setDomainFilter} onAdd={() => setUploadOpen(true)} />
+          <LibraryDashboard docs={live} domains={domains} onOpen={setSelectedId} onDomain={setDomainFilter} onAdd={() => setUploadOpen(true)} />
         ) : (
           <div className="flex h-full items-center justify-center">
             <LoaderCircle className="animate-spin text-tt-electric" />

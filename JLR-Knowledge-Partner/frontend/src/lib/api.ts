@@ -13,6 +13,7 @@ import type {
   ExcelPreview,
   Health,
   IngestResult,
+  UploadCheck,
   ManagedUser,
   ParseOptions,
   StreamEvent,
@@ -108,15 +109,27 @@ export const api = {
     send<IngestResult>('PUT', `/api/documents/${docId}/parse-options`, { parse_options }),
   reprocess: (docId: string) => send<IngestResult>('POST', `/api/documents/${docId}/reprocess`),
 
-  upload: async (file: File, meta: Record<string, unknown>, force: boolean, domain = ''): Promise<IngestResult> => {
+  /** Step 1 of adding a file: read it once and look for similar documents. */
+  checkUpload: async (file: File, domain: string): Promise<UploadCheck> => {
     const fd = new FormData()
-    fd.append('files', file)
-    fd.append('metadata', JSON.stringify(meta))
-    fd.append('force', String(force))
+    fd.append('file', file)
     fd.append('domain', domain)
-    const res = await json<{ results: IngestResult[] }>(await request('/api/documents', { method: 'POST', body: fd }))
+    return json<UploadCheck>(await request('/api/documents/check', { method: 'POST', body: fd }))
+  },
+  /** Step 2: add the checked file as a new document or as an update of an existing one. */
+  commitUpload: async (req: {
+    check_id: string
+    intent: 'new' | 'update'
+    replaces?: string
+    domain: string
+    metadata: Record<string, unknown>
+    force: boolean
+    allow_duplicate: boolean
+  }): Promise<IngestResult> => {
+    const res = await send<{ results: IngestResult[] }>('POST', '/api/documents/commit', req)
     return res.results[0]
   },
+  restoreDocument: (docId: string) => send<{ restored: string }>('POST', `/api/documents/${docId}/restore`),
 
   // ---- chat (every role)
   /** Pre-open the backend's Azure connections while the user types (fire and forget, throttled). */

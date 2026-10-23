@@ -3,16 +3,18 @@
     fingerprint ──(unchanged & not forced)──► END  (status=skipped)
          │
          ▼
-       parse ──► chunk ──► index ──► images ──► END  (status=indexed)
+       parse ──► chunk ──► index ──► images ──► signature ──► END  (status=indexed)
 
 `images` stores the document's pictures (waiting for a vision model) and restores the search chunks of
 pictures described earlier, so re-processing never loses or re-pays for descriptions.
+`signature` saves what the upload popup needs to suggest similar documents (content codes, topic, size).
 
 Future nodes (knowledge-graph extraction with Azure OpenAI, entity linking) slot in between
 `chunk` and `index` without changing the API.
 """
 from __future__ import annotations
 
+import filecmp
 import hashlib
 import logging
 import shutil
@@ -27,6 +29,7 @@ from ..domains import UNASSIGNED, validate_domain
 from ..images import catalog
 from ..ingestion import ParsedDocument, parse_file
 from ..ingestion.chunker import Chunk, build_chunks
+from ..ingestion.similarity import build_signature
 from ..rag.vocab import invalidate_vocabulary
 from ..store import doc_id_for, get_store
 
@@ -76,7 +79,9 @@ def fingerprint(state: IngestState) -> IngestState:
 
 
 def parse(state: IngestState) -> IngestState:
-    parsed = parse_file(state["file_path"], state.get("parse_options") or {})
+    parsed = state.get("parsed")  # parsed already by the upload check: reuse unless user corrections apply
+    if parsed is None or state.get("parse_options"):
+        parsed = parse_file(state["file_path"], state.get("parse_options") or {})
     parsed.file_name = state["file_name"]
     return {"parsed": parsed}
 
@@ -86,9 +91,15 @@ def chunk(state: IngestState) -> IngestState:
     return {"chunks": build_chunks(state["doc_id"], state["parsed"], s.chunk_size, s.chunk_overlap)}
 
 
+# registry-only fields that must survive re-processing a document
+_KEEP_FIELDS = ("superseded", "replaced_by", "replaced_at", "replaced_by_user", "replaces")
+
+
 def index(state: IngestState) -> IngestState:
     parsed = state["parsed"]
+    existing = get_store().get_document(state["doc_id"]) or {}
     doc = {
+        **{k: existing[k] for k in _KEEP_FIELDS if k in existing},
         "doc_id": state["doc_id"],
         "file_name": state["file_name"],
         "file_type": parsed.file_type,
@@ -118,6 +129,32 @@ def images(state: IngestState) -> IngestState:
         log.exception("Picture extraction failed for %s", state["file_name"])
         report.setdefault("warnings", []).append(f"Pictures could not be extracted: {type(e).__name__}: {e}")
     return {"report": report}
+
+
+def signature(state: IngestState) -> IngestState:
+    report = dict(state["report"])
+    try:
+        store = get_store()
+        sig = build_signature(state["parsed"], store.document_vectors_mean(state["doc_id"]))
+        store.set_document_fields(state["doc_id"], {"signature": sig, "sig_size": sig["size"]})
+    except Exception as e:  # noqa: BLE001 - only the similar-document suggestions are affected
+        log.exception("Signature failed for %s", state["file_name"])
+        report.setdefault("warnings", []).append(f"Similar-document check data could not be built: {type(e).__name__}: {e}")
+    return {"report": report}
+
+
+def rebuild_signature(doc_id: str) -> bool:
+    """Signature of an already indexed document from its stored original (no re-embedding); False = no original."""
+    store = get_store()
+    doc = store.get_document(doc_id)
+    path = source_file(doc) if doc else None
+    if path is None:
+        return False
+    parsed = parse_file(path, doc.get("parse_options") or {})
+    parsed.file_name = doc["file_name"]
+    sig = build_signature(parsed, store.document_vectors_mean(doc_id))
+    store.set_document_fields(doc_id, {"signature": sig, "sig_size": sig["size"]})
+    return True
 
 
 def refresh_images(doc_id: str) -> dict[str, int]:
@@ -151,15 +188,21 @@ def source_file(doc: dict) -> Path | None:
 
 
 def keep_source_copy(file_path: str, doc_id: str, file_name: str) -> Path:
-    """Keep the exact ingested file so previews / re-processing always use the same bytes."""
+    """Keep the exact ingested file so previews / re-processing always use the same bytes.
+    The previous original of an updated document is archived in versions/<time>/ (manual rollback)."""
     src = Path(file_path)
     folder = source_dir(doc_id)
     dest = folder / file_name
     if src.resolve() != dest.resolve():
         folder.mkdir(parents=True, exist_ok=True)
-        for old in folder.iterdir():  # one file per document
-            if old.name != file_name:
-                old.unlink()
+        archive = folder / "versions" / time.strftime("%Y%m%d-%H%M%S")
+        for old in list(folder.iterdir()):  # one current file per document
+            if not old.is_file():
+                continue
+            if old.name == file_name and filecmp.cmp(old, src, shallow=False):
+                continue  # same bytes again (re-processing): nothing to archive
+            archive.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(old), archive / old.name)
         shutil.copy2(src, dest)
     return dest
 
@@ -175,12 +218,14 @@ def build_ingest_graph():
     g.add_node("chunk", chunk)
     g.add_node("index", index)
     g.add_node("images", images)
+    g.add_node("signature", signature)
     g.add_edge(START, "fingerprint")
     g.add_conditional_edges("fingerprint", _route_after_fingerprint, ["parse", END])
     g.add_edge("parse", "chunk")
     g.add_edge("chunk", "index")
     g.add_edge("index", "images")
-    g.add_edge("images", END)
+    g.add_edge("images", "signature")
+    g.add_edge("signature", END)
     return g.compile()
 
 
@@ -188,8 +233,10 @@ _graph = None
 
 
 def run_ingest(file_path: str | Path, file_name: str | None = None, meta: dict[str, Any] | None = None,
-               force: bool = False, domain: str | None = None, parse_options: dict | None = None) -> dict[str, Any]:
-    """Run the pipeline for one file and return a report (never raises)."""
+               force: bool = False, domain: str | None = None, parse_options: dict | None = None,
+               parsed: ParsedDocument | None = None) -> dict[str, Any]:
+    """Run the pipeline for one file and return a report (never raises). `parsed` = the file already parsed
+    (by the upload check), so it is not read twice."""
     global _graph
     if _graph is None:
         _graph = build_ingest_graph()
@@ -198,7 +245,7 @@ def run_ingest(file_path: str | Path, file_name: str | None = None, meta: dict[s
     try:
         domain = validate_domain(domain) if domain else None
         out = _graph.invoke({"file_path": str(file_path), "file_name": name, "meta": meta or {}, "force": force,
-                             "domain": domain, "parse_options": parse_options})
+                             "domain": domain, "parse_options": parse_options, **({"parsed": parsed} if parsed else {})})
         report = out.get("report") or {"doc_id": out["doc_id"], "file_name": name, "reason": "unchanged (use force to re-ingest)"}
         report["status"] = out["status"]
     except Exception as e:  # noqa: BLE001 - report every failure back to the caller

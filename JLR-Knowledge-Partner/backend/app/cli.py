@@ -78,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     p_d.add_argument("doc_id")
     p_x = sub.add_parser("extract-images", help="extract pictures of indexed documents (no re-embedding of text)")
     p_x.add_argument("doc_ids", nargs="*", help="default: every document")
+    p_g = sub.add_parser("build-signatures", help="build the similar-document data of documents ingested earlier (no re-embedding)")
+    p_g.add_argument("doc_ids", nargs="*", help="default: every document without one")
     p_u = sub.add_parser("create-user", help="create an account (works while the API is running)")
     p_u.add_argument("username")
     p_u.add_argument("--role", default="user", choices=["user", "superuser", "developer"])
@@ -112,6 +114,12 @@ def main(argv: list[str] | None = None) -> int:
             found = store.delete_document(a.doc_id)
             catalog.delete_document(a.doc_id)
             print("deleted" if found else "not found")
+        elif a.cmd == "build-signatures":
+            from .graphs.ingest_graph import rebuild_signature
+
+            for d in store.list_documents():
+                if (a.doc_ids and d["doc_id"] in a.doc_ids) or (not a.doc_ids and "sig_size" not in d):
+                    print(f"{d['file_name']}: {'ok' if rebuild_signature(d['doc_id']) else 'original file not found'}")
         elif a.cmd == "extract-images":
             from .graphs.ingest_graph import refresh_images
 

@@ -1,17 +1,53 @@
 import clsx from 'clsx'
-import { ArrowRightLeft, ChevronRight, CircleCheck, CloudUpload, LoaderCircle, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { ArrowRightLeft, ChevronRight, CircleCheck, CloudUpload, History, LoaderCircle, Plus, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { domainVisual } from '../lib/domains'
 import { bytes, extOf, FileBadge } from '../lib/format'
-import type { Domain, IngestResult } from '../lib/types'
+import type { DocRef, Domain, IngestResult, SigSize, UploadCheck } from '../lib/types'
 
 const ACCEPT = ['.xlsx', '.xlsm', '.csv', '.pdf', '.docx', '.pptx', '.txt', '.md']
 const DOC_TYPES = ['Benchmarking', 'Design guideline', 'FMEA', 'Control plan', 'Specification', 'Issue log', 'Lessons learned', 'Other']
 
-type Item = { id: string; file: File; state: 'queued' | 'uploading' | 'done'; result?: IngestResult }
+type Item = {
+  id: string
+  file: File
+  /** queued -> checking (read once, look for similar documents) -> checked (SME decides) -> uploading -> done */
+  state: 'queued' | 'checking' | 'checked' | 'unreadable' | 'uploading' | 'done'
+  check?: UploadCheck
+  intent: 'new' | 'update'
+  replaces: string
+  allowDuplicate: boolean
+  error?: string
+  result?: IngestResult
+}
 type Field = { key: string; value: string }
+
+const pct = (n: number) => `${n.toLocaleString('en-GB')}`
+
+/** The new file is much smaller than the document it would replace: everything else would be hidden. */
+function partialWarning(old: SigSize | null | undefined, next: SigSize): string | null {
+  if (!old) return null
+  if (old.unit && old.unit === next.unit && old.units >= 2 && next.units < old.units * 0.5)
+    return `The existing document has ${old.units} ${old.unit}, this file only ${next.units}. Whatever is missing would no longer be searchable.`
+  const was = old.records + old.text_blocks
+  const now = next.records + next.text_blocks
+  if (was >= 10 && now < was * 0.5) return `The existing document has ${pct(was)} items, this file only ${pct(now)}. Whatever is missing would no longer be searchable.`
+  return null
+}
+
+/** What stops this file from being added yet (null = ready). */
+function blocker(it: Item): string | null {
+  const c = it.check
+  if (!c) return 'Still being checked'
+  if (it.intent === 'update') {
+    if (!it.replaces) return 'Choose the document this file updates'
+    if (c.same_name && c.same_name.doc_id !== it.replaces) return `A different document is already named "${c.same_name.file_name}": rename the file or update that one`
+  } else if (c.same_name) return `A document named "${c.same_name.file_name}" already exists: choose Update, or rename the file`
+  if (c.exact.length && !it.allowDuplicate) return 'This exact file is already in the library: tick "Add anyway" to continue'
+  return null
+}
 
 type Props = { domains: Domain[]; defaultDomain: string; onDone: () => void; onClose: () => void }
 
@@ -32,9 +68,36 @@ export function UploadPanel({ domains, defaultDomain, onDone, onClose }: Props) 
     if (!files) return
     const next = Array.from(files)
       .filter((f) => ACCEPT.includes(`.${extOf(f.name)}`))
-      .map((file) => ({ id: `${file.name}-${file.size}-${file.lastModified}`, file, state: 'queued' as const }))
+      .map((file) => ({
+        id: `${file.name}-${file.size}-${file.lastModified}`,
+        file,
+        state: 'queued' as const,
+        intent: 'new' as const,
+        replaces: '',
+        allowDuplicate: false,
+      }))
     setItems((cur) => [...cur.filter((c) => c.state !== 'done'), ...next.filter((n) => !cur.some((c) => c.id === n.id))])
   }
+
+  const patch = (id: string, change: Partial<Item>) => setItems((cur) => cur.map((c) => (c.id === id ? { ...c, ...change } : c)))
+
+  // files are checked one at a time (reading a big workbook takes a moment)
+  useEffect(() => {
+    if (items.some((i) => i.state === 'checking')) return
+    const next = items.find((i) => i.state === 'queued')
+    if (!next) return
+    patch(next.id, { state: 'checking', error: undefined })
+    api
+      .checkUpload(next.file, domain)
+      .then((check) => {
+        const top = check.suggestions[0]
+        // pre-select "update" only when the system is sure; otherwise the SME picks
+        const update = top?.label === 'likely' && !check.exact.some((e) => !e.superseded)
+        patch(next.id, { state: 'checked', check, intent: update ? 'update' : 'new', replaces: update ? top.doc_id : '' })
+      })
+      .catch((e: Error) => patch(next.id, { state: 'unreadable', error: e.message }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items])
 
   const meta = () => {
     const m: Record<string, unknown> = {}
@@ -50,21 +113,31 @@ export function UploadPanel({ domains, defaultDomain, onDone, onClose }: Props) 
   const run = async () => {
     setRunning(true)
     const m = meta()
-    for (const it of items.filter((i) => i.state === 'queued')) {
-      setItems((cur) => cur.map((c) => (c.id === it.id ? { ...c, state: 'uploading' } : c)))
-      let result: IngestResult
+    for (const it of items.filter((i) => i.state === 'checked' && !blocker(i))) {
+      patch(it.id, { state: 'uploading', error: undefined })
       try {
-        result = await api.upload(it.file, m, force, domain)
+        const result = await api.commitUpload({
+          check_id: it.check!.check_id,
+          intent: it.intent,
+          replaces: it.intent === 'update' ? it.replaces : undefined,
+          domain,
+          metadata: m,
+          force,
+          allow_duplicate: it.allowDuplicate,
+        })
+        if (result.status === 'failed') patch(it.id, { state: 'checked', error: result.error ?? 'Processing failed' })
+        else patch(it.id, { state: 'done', result })
       } catch (e) {
-        result = { file_name: it.file.name, status: 'failed', error: (e as Error).message, seconds: 0 }
+        patch(it.id, { state: 'checked', error: (e as Error).message })
       }
-      setItems((cur) => cur.map((c) => (c.id === it.id ? { ...c, state: 'done', result } : c)))
     }
     setRunning(false)
     onDone()
   }
 
-  const queued = items.filter((i) => i.state === 'queued').length
+  const ready = items.filter((i) => i.state === 'checked' && !blocker(i)).length
+  const waiting = items.filter((i) => i.state === 'queued' || i.state === 'checking').length
+  const queued = ready
   const allDone = items.length > 0 && items.every((i) => i.state === 'done')
   const input_ = 'w-full rounded-lg border border-tt-line bg-white px-3 py-2 text-[13px] outline-none transition focus:border-tt-periwinkle focus:ring-4 focus:ring-tt-periwinkle/15'
   const step = 'flex h-5 w-5 items-center justify-center rounded-full bg-tt-navy text-[11px] font-bold text-white'
@@ -147,30 +220,44 @@ export function UploadPanel({ domains, defaultDomain, onDone, onClose }: Props) 
               <AnimatePresence initial={false}>
                 {items.map((it) => {
                   const r = it.result
+                  const removable = it.state === 'queued' || it.state === 'checked' || it.state === 'unreadable'
                   return (
-                    <motion.div key={it.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, height: 0 }} className="flex items-center gap-3 px-3 py-2.5">
-                      <FileBadge type={extOf(it.file.name)} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-medium text-tt-ink">{it.file.name}</div>
-                        <div className={clsx('text-[11.5px]', r?.status === 'failed' ? 'text-[#a8401a]' : 'text-tt-slate')}>
-                          {it.state === 'queued' && bytes(it.file.size)}
-                          {it.state === 'uploading' && 'Processing…'}
-                          {r?.status === 'indexed' && `Added · ${r.records ? `${r.records} records` : `${r.chunks} chunks`} · ${r.seconds}s`}
-                          {r?.status === 'skipped' && 'Already in the library, unchanged'}
-                          {r?.status === 'reclassified' && 'Already in the library, moved to this domain'}
-                          {r?.status === 'failed' && r.error}
+                    <motion.div key={it.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, height: 0 }} className="px-3 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <FileBadge type={extOf(it.file.name)} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[13px] font-medium text-tt-ink">{it.file.name}</div>
+                          <div className={clsx('text-[11.5px]', r?.status === 'failed' || it.state === 'unreadable' ? 'text-[#a8401a]' : 'text-tt-slate')}>
+                            {it.state === 'queued' && `${bytes(it.file.size)} · waiting to be checked`}
+                            {it.state === 'checking' && 'Reading the file and looking for similar documents…'}
+                            {it.state === 'checked' && bytes(it.file.size)}
+                            {it.state === 'unreadable' && it.error}
+                            {it.state === 'uploading' && 'Processing…'}
+                            {r?.status === 'indexed' &&
+                              `${r.replaced ? 'Updated' : 'Added'} · ${r.records ? `${r.records} records` : `${r.chunks} chunks`} · ${r.seconds}s`}
+                            {r?.status === 'skipped' && 'Already in the library, unchanged'}
+                            {r?.status === 'reclassified' && 'Already in the library, moved to this domain'}
+                            {r?.status === 'failed' && r.error}
+                          </div>
                         </div>
+                        {removable && (
+                          <button onClick={() => setItems((c) => c.filter((x) => x.id !== it.id))} className="rounded-md p-1 text-tt-slate hover:bg-tt-mist" aria-label="Remove">
+                            <X size={14} />
+                          </button>
+                        )}
+                        {(it.state === 'checking' || it.state === 'uploading') && <LoaderCircle size={17} className="animate-spin text-tt-electric" />}
+                        {it.state === 'unreadable' && <TriangleAlert size={17} className="text-tt-ember" />}
+                        {r?.status === 'indexed' && <CircleCheck size={18} className="text-[#0b8f81]" />}
+                        {r?.status === 'skipped' && <RefreshCw size={16} className="text-tt-slate" />}
+                        {r?.status === 'reclassified' && <ArrowRightLeft size={16} className="text-tt-electric" />}
+                        {r?.status === 'failed' && <TriangleAlert size={17} className="text-tt-ember" />}
                       </div>
-                      {it.state === 'queued' && (
-                        <button onClick={() => setItems((c) => c.filter((x) => x.id !== it.id))} className="rounded-md p-1 text-tt-slate hover:bg-tt-mist" aria-label="Remove">
-                          <X size={14} />
-                        </button>
+                      {r?.replaced && (
+                        <p className="mt-1.5 ml-11 flex items-center gap-1.5 text-[12px] text-tt-slate">
+                          <History size={13} /> "{r.replaced.file_name}" is hidden from the assistant. You can restore it from the document page.
+                        </p>
                       )}
-                      {it.state === 'uploading' && <LoaderCircle size={17} className="animate-spin text-tt-electric" />}
-                      {r?.status === 'indexed' && <CircleCheck size={18} className="text-[#0b8f81]" />}
-                      {r?.status === 'skipped' && <RefreshCw size={16} className="text-tt-slate" />}
-                      {r?.status === 'reclassified' && <ArrowRightLeft size={16} className="text-tt-electric" />}
-                      {r?.status === 'failed' && <TriangleAlert size={17} className="text-tt-ember" />}
+                      {it.state === 'checked' && it.check && <Decision it={it} domains={domains} onChange={(change) => patch(it.id, change)} />}
                     </motion.div>
                   )
                 })}
@@ -245,7 +332,8 @@ export function UploadPanel({ domains, defaultDomain, onDone, onClose }: Props) 
       </div>
 
       <div className="flex items-center justify-end gap-2 rounded-b-2xl border-t border-tt-line bg-tt-mist/40 px-6 py-3.5">
-        {!domain && queued > 0 && <span className="mr-auto text-[12px] text-tt-slate">Choose a domain to continue</span>}
+        {!domain && items.length > 0 && <span className="mr-auto text-[12px] text-tt-slate">Choose a domain to continue</span>}
+        {domain && waiting > 0 && <span className="mr-auto text-[12px] text-tt-slate">Checking {waiting} file{waiting === 1 ? '' : 's'}…</span>}
         <button onClick={onClose} className="rounded-lg px-4 py-2 text-[13px] font-semibold text-tt-slate hover:bg-white hover:text-tt-navy">
           {allDone ? 'Done' : 'Cancel'}
         </button>
@@ -259,5 +347,140 @@ export function UploadPanel({ domains, defaultDomain, onDone, onClose }: Props) 
         </button>
       </div>
     </section>
+  )
+}
+
+const label = (domains: Domain[], id: string) => domains.find((d) => d.id === id)?.name ?? id
+
+/** Per file: what the system found in the library, and the SME's choice (new document / update of ...). */
+function Decision({ it, domains, onChange }: { it: Item; domains: Domain[]; onChange: (change: Partial<Item>) => void }) {
+  const c = it.check!
+  const live = c.exact.filter((e) => !e.superseded)
+  const hidden = c.exact.filter((e) => e.superseded)
+  const chosen: DocRef | undefined = c.others.find((o) => o.doc_id === it.replaces)
+  const partial = it.intent === 'update' ? partialWarning(chosen?.sig_size, c.size) : null
+  const stop = blocker(it)
+  const suggested = new Set(c.suggestions.map((s) => s.doc_id))
+  const radio = 'h-3.5 w-3.5 accent-[#0000b3]'
+
+  return (
+    <div className="mt-2.5 ml-11 space-y-2.5">
+      {(live.length > 0 || hidden.length > 0) && (
+        <div className="rounded-lg border border-[#f1d9a6] bg-[#fff8e8] px-3 py-2 text-[12px] text-[#7a5410]">
+          <div className="flex items-start gap-2">
+            <TriangleAlert size={14} className="mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              {live.map((e) => (
+                <p key={e.doc_id}>
+                  This exact file is already in the library as <b>{e.file_name}</b> ({label(domains, e.domain)}).
+                </p>
+              ))}
+              {hidden.map((e) => (
+                <p key={e.doc_id}>
+                  This exact file is the older version <b>{e.file_name}</b>, replaced by a newer one. Add it again only if that is intended.
+                </p>
+              ))}
+              <label className="mt-1 flex cursor-pointer items-center gap-2 select-none">
+                <input type="checkbox" checked={it.allowDuplicate} onChange={(e) => onChange({ allowDuplicate: e.target.checked })} className={radio} />
+                Add anyway
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {c.suggestions.length > 0 && (
+        <div>
+          <div className="mb-1 flex items-center gap-1.5 text-[11.5px] font-semibold tracking-wide text-tt-slate uppercase">
+            <Sparkles size={12} /> Similar documents already in the library
+          </div>
+          <div className="space-y-1">
+            {c.suggestions.map((s) => {
+              const on = it.intent === 'update' && it.replaces === s.doc_id
+              return (
+                <button
+                  key={s.doc_id}
+                  onClick={() => onChange({ intent: 'update', replaces: s.doc_id })}
+                  className={clsx(
+                    'flex w-full items-start gap-2 rounded-lg border px-2.5 py-1.5 text-left transition',
+                    on ? 'border-tt-electric bg-tt-electric/[0.05]' : 'border-tt-line hover:border-tt-periwinkle hover:bg-tt-mist/40',
+                  )}
+                >
+                  <span
+                    className={clsx(
+                      'mt-0.5 shrink-0 rounded px-1.5 py-px text-[10.5px] font-semibold',
+                      s.label === 'likely' ? 'bg-[#e3f6f2] text-[#0b6f64]' : 'bg-tt-mist text-tt-slate',
+                    )}
+                  >
+                    {s.label === 'likely' ? 'Likely update' : 'Related'}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12.5px] font-medium text-tt-ink">{s.file_name}</span>
+                    <span className="block text-[11.5px] text-tt-slate">
+                      {label(domains, s.domain)} · {s.reasons.filter((x) => x !== 'same domain').join(' · ') || 'similar'}
+                    </span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-1.5 text-[12.5px] text-tt-navy">
+        <label className="flex cursor-pointer items-center gap-2 select-none">
+          <input type="radio" name={`intent-${it.id}`} checked={it.intent === 'new'} onChange={() => onChange({ intent: 'new', replaces: '' })} className={radio} />
+          New document
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex cursor-pointer items-center gap-2 select-none">
+            <input type="radio" name={`intent-${it.id}`} checked={it.intent === 'update'} onChange={() => onChange({ intent: 'update' })} className={radio} />
+            Update of
+          </label>
+          <select
+            value={it.replaces}
+            onChange={(e) => onChange({ intent: 'update', replaces: e.target.value })}
+            className="min-w-0 max-w-full flex-1 rounded-lg border border-tt-line bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-tt-periwinkle"
+          >
+            <option value="">Choose a document…</option>
+            {c.suggestions.length > 0 && (
+              <optgroup label="Suggested">
+                {c.suggestions.map((s) => (
+                  <option key={s.doc_id} value={s.doc_id}>
+                    {s.file_name} · {label(domains, s.domain)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label="All documents">
+              {c.others
+                .filter((o) => !suggested.has(o.doc_id))
+                .map((o) => (
+                  <option key={o.doc_id} value={o.doc_id}>
+                    {o.file_name} · {label(domains, o.domain)}
+                  </option>
+                ))}
+            </optgroup>
+          </select>
+        </div>
+        {it.intent === 'update' && (
+          <p className="ml-5 text-[11.5px] text-tt-slate">The old version is hidden from the assistant, not deleted. You can restore it any time.</p>
+        )}
+      </div>
+
+      {partial && (
+        <p className="flex items-start gap-1.5 text-[12px] text-[#a8401a]">
+          <TriangleAlert size={14} className="mt-0.5 shrink-0" /> {partial}
+        </p>
+      )}
+      {c.unchecked > 0 && (
+        <p className="text-[11.5px] text-tt-slate">
+          {c.unchecked} document{c.unchecked === 1 ? '' : 's'} could only be compared by name (content data not built yet).
+        </p>
+      )}
+      {(it.error || stop) && (
+        <p className={clsx('text-[12px]', it.error ? 'text-[#a8401a]' : 'text-tt-slate')}>{it.error ?? stop}</p>
+      )}
+    </div>
   )
 }

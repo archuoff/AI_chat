@@ -83,6 +83,11 @@ class KGStore:
                     for key in ("doc_id", "file_type", "kind", "domain"):
                         self.client.create_payload_index(s.chunks_collection, key, models.PayloadSchemaType.KEYWORD)
                     self.client.create_payload_index(s.chunks_collection, "confidential", models.PayloadSchemaType.BOOL)
+            if s.qdrant_url:  # collections created before versions existed
+                try:
+                    self.client.create_payload_index(s.chunks_collection, "superseded", models.PayloadSchemaType.BOOL)
+                except Exception:  # noqa: BLE001 - index already there
+                    pass
             if not self.client.collection_exists(s.documents_collection):
                 self.client.create_collection(s.documents_collection, vectors_config={})
 
@@ -95,11 +100,13 @@ class KGStore:
             recs = self.client.retrieve(self.settings.documents_collection, [doc_id], with_payload=True)
         return recs[0].payload if recs else None
 
-    def list_documents(self) -> list[dict]:
+    def list_documents(self, include_signature: bool = False) -> list[dict]:
+        """Registry entries. The signature (content codes + topic vector, ~30 KB each) only when asked for."""
+        payload = True if include_signature else models.PayloadSelectorExclude(exclude=["signature"])
         out, offset = [], None
         with self._lock:
             while True:
-                recs, offset = self.client.scroll(self.settings.documents_collection, limit=256, offset=offset, with_payload=True)
+                recs, offset = self.client.scroll(self.settings.documents_collection, limit=256, offset=offset, with_payload=payload)
                 out.extend(r.payload for r in recs)
                 if offset is None:
                     break
@@ -146,9 +153,56 @@ class KGStore:
             raise RuntimeError(f"Confidential flag update incomplete for {doc_id}: {flagged}/{total} chunks")
         return {**doc, "confidential": confidential}
 
+    def set_document_fields(self, doc_id: str, fields: dict[str, Any]) -> None:
+        """Update registry-only fields of a document (signature, replaces ...)."""
+        with self._lock:
+            self.client.set_payload(self.settings.documents_collection, payload=fields, points=[doc_id], wait=True)
+
+    def set_document_superseded(self, doc_id: str, superseded: bool, replaced_by: str | None = None, by: str | None = None) -> dict:
+        """Hide a document from chat (an updated version replaced it) or bring it back. Nothing is deleted:
+        payload update on its chunks + registry, verified like the domain / confidential updates."""
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._lock:
+            doc = self.get_document(doc_id)
+            if doc is None:
+                raise KeyError(doc_id)
+            self.client.set_payload(self.settings.chunks_collection, payload={"superseded": superseded},
+                                    points=models.FilterSelector(filter=_filter({"doc_id": doc_id})), wait=True)
+            fields = ({"superseded": True, "replaced_by": replaced_by, "replaced_at": now, "replaced_by_user": by}
+                      if superseded else {"superseded": False, "replaced_by": None, "replaced_at": None, "replaced_by_user": None})
+            self.client.set_payload(self.settings.documents_collection, payload=fields, points=[doc_id], wait=True)
+            marked = self.client.count(self.settings.chunks_collection,
+                                       count_filter=_filter({"doc_id": doc_id, "superseded": superseded})).count
+            total = self.client.count(self.settings.chunks_collection, count_filter=_filter({"doc_id": doc_id})).count
+        if marked != total:
+            raise RuntimeError(f"Version update incomplete for {doc_id}: {marked}/{total} chunks")
+        return {**doc, **fields}
+
+    def document_vectors_mean(self, doc_id: str, limit: int = 600) -> list[float] | None:
+        """What the document is about: mean of the stored (text) chunk vectors, no embedding call."""
+        vectors: list[list[float]] = []
+        offset = None
+        with self._lock:
+            while len(vectors) < limit:
+                recs, offset = self.client.scroll(self.settings.chunks_collection,
+                                                  scroll_filter=_filter({"doc_id": doc_id, "!kind": "image"}),
+                                                  limit=min(256, limit - len(vectors)), offset=offset,
+                                                  with_payload=False, with_vectors=[DENSE])
+                for r in recs:
+                    v = r.vector.get(DENSE) if isinstance(r.vector, dict) else r.vector
+                    if v:
+                        vectors.append(v)
+                if offset is None:
+                    break
+        from .ingestion.similarity import mean_vector
+
+        return mean_vector(vectors)
+
     def domain_stats(self) -> dict[str, dict[str, int]]:
         stats: dict[str, dict[str, int]] = {}
         for d in self.list_documents():
+            if d.get("superseded"):
+                continue
             s = stats.setdefault(d.get("domain") or UNASSIGNED, {"documents": 0, "chunks": 0})
             s["documents"] += 1
             s["chunks"] += d.get("chunks", 0)
@@ -194,7 +248,8 @@ class KGStore:
                     "chunk_index": c.index, "kind": c.kind, "text": c.text, "context": c.context,
                     "section": c.section, "location": c.location, "fields": c.fields, "title": c.title,
                     **c.extra, "meta": meta, "domain": doc.get("domain", UNASSIGNED),
-                    "confidential": bool(doc.get("confidential", False)), "ingested_at": now,
+                    "confidential": bool(doc.get("confidential", False)), "superseded": bool(doc.get("superseded", False)),
+                    "ingested_at": now,
                 }
                 points.append(models.PointStruct(id=c.id, vector={DENSE: dv, SPARSE: models.SparseVector(indices=idx, values=val)}, payload=payload))
         return points

@@ -60,6 +60,40 @@ export type DocumentInfo = {
   source_path?: string
   embedding_model?: string
   images?: ImageCounts | null
+  /** an updated version replaced this document: hidden from the assistant until restored */
+  superseded?: boolean
+  replaced_by?: string | null
+  replaced_at?: string | null
+  replaced_by_user?: string | null
+  /** this document is the update of another one */
+  replaces?: string | null
+  sig_size?: SigSize | null
+}
+
+export type SigSize = { unit: string; units: number; records: number; text_blocks: number }
+
+export type SimilarDoc = {
+  doc_id: string
+  file_name: string
+  domain: string
+  label: 'likely' | 'related'
+  reasons: string[]
+  size?: SigSize | null
+}
+export type ExactDoc = { doc_id: string; file_name: string; domain: string; superseded: boolean; replaced_by?: string | null }
+export type DocRef = { doc_id: string; file_name: string; domain: string; sig_size?: SigSize | null; superseded?: boolean }
+
+/** Result of checking an uploaded file against the library, before it is added. */
+export type UploadCheck = {
+  check_id: string
+  file_name: string
+  size: SigSize
+  exact: ExactDoc[]
+  suggestions: SimilarDoc[]
+  /** documents that could not be compared (no content data yet) */
+  unchecked: number
+  same_name: DocRef | null
+  others: DocRef[]
 }
 
 export type ImageStatus = 'waiting' | 'described' | 'skipped' | 'unsupported' | 'failed'
@@ -191,6 +225,8 @@ export type IngestResult = {
   error?: string
   reason?: string
   seconds: number
+  /** the older document this upload replaced (hidden, can be restored) */
+  replaced?: { doc_id: string; file_name: string }
 }
 
 export type Location = Record<string, string | number>

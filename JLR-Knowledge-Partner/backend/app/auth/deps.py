@@ -90,4 +90,5 @@ def access_filters(p: Principal, requested: dict[str, Any] | None) -> dict[str, 
             f["domain"] = [d for d in wanted_list if d in allowed] or [NO_DOMAIN]
     if not p.sees_confidential:
         f["!confidential"] = True  # must_not: confidential == true
+    f["!superseded"] = True  # an updated version replaced this document: chat never uses it, whoever asks
     return f or None

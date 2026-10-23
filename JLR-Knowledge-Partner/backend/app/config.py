@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     chunk_size: int = 1200
     chunk_overlap: int = 150
 
+    # ---------------- upload suggestions (similar documents; code only, no LLM)
+    sim_likely_content: float = 0.5  # share of identical cells / lines that makes a file a "likely update"
+    sim_related_content: float = 0.2
+    sim_likely_name: float = 0.85  # cleaned file-name similarity (Rev / v1 / dates / "copy" removed)
+    sim_related_name: float = 0.7
+    sim_likely_topic: float = 0.9  # cosine of the document topic vectors (needs a name match as well)
+    sim_related_topic: float = 0.85
+
     # ---------------- RAG
     top_k: int = 8  # evidence units passed to the answer step
     retrieve_candidates: int = 30  # chunks fetched per search before reranking

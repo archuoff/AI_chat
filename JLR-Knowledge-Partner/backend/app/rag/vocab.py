@@ -94,7 +94,7 @@ def get_vocabulary() -> Vocabulary:
         sheets: dict[str, set[str]] = defaultdict(set)
         entities: dict[str, set[str]] = defaultdict(set)
         headers: set[str] = set()
-        rows = get_store().scroll_chunks({"kind": "record"}, limit=100_000, fields=["file_name", "title", "location", "fields"])
+        rows = get_store().scroll_chunks({"kind": "record", "!superseded": True}, limit=100_000, fields=["file_name", "title", "location", "fields"])
         for r in rows:
             sheet = (r.get("location") or {}).get("sheet")
             if sheet:

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Check, ChevronDown, CircleCheck, Ellipsis, LoaderCircle, Lock, LockOpen, RefreshCw, Trash, WandSparkles, X } from 'lucide-react'
+import { Check, ChevronDown, CircleCheck, Ellipsis, History, LoaderCircle, Lock, LockOpen, RefreshCw, Trash, WandSparkles, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api'
@@ -14,9 +14,18 @@ import { RecordsTab } from './RecordsTab'
 import { SheetPreview } from './SheetPreview'
 
 type Tab = 'overview' | 'preview' | 'records' | 'images' | 'chunks'
-type Props = { doc: DocumentInfo; domains: Domain[]; onChanged: () => Promise<void> | void; onDeleted: () => void; onClose: () => void }
+type Props = {
+  doc: DocumentInfo
+  domains: Domain[]
+  /** other documents of the library, to name the version this one replaced / was replaced by */
+  related: (docId: string) => DocumentInfo | undefined
+  onOpenDoc: (docId: string) => void
+  onChanged: () => Promise<void> | void
+  onDeleted: () => void
+  onClose: () => void
+}
 
-export function DocDetail({ doc, domains, onChanged, onDeleted, onClose }: Props) {
+export function DocDetail({ doc, domains, related, onOpenDoc, onChanged, onDeleted, onClose }: Props) {
   const isExcel = doc.file_type === 'xlsx' || doc.file_type === 'xlsm'
   const [tab, setTab] = useState<Tab>('overview')
   const [sheet, setSheet] = useState<string | undefined>(undefined)
@@ -24,7 +33,7 @@ export function DocDetail({ doc, domains, onChanged, onDeleted, onClose }: Props
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [draft, setDraft] = useState<ParseOptions>(doc.parse_options ?? {})
-  const [busy, setBusy] = useState<null | 'apply' | 'reprocess' | 'delete' | 'domain' | 'suggest' | 'access'>(null)
+  const [busy, setBusy] = useState<null | 'apply' | 'reprocess' | 'delete' | 'domain' | 'suggest' | 'access' | 'restore'>(null)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [suggestion, setSuggestion] = useState<DomainSuggestion | null>(null)
   const [menu, setMenu] = useState<null | 'domain' | 'more'>(null)
@@ -246,6 +255,57 @@ export function DocDetail({ doc, domains, onChanged, onDeleted, onClose }: Props
             </button>
           </div>
         </div>
+
+        {(doc.superseded || doc.replaces) && (
+          <div className="mt-3 space-y-1.5">
+            {doc.superseded && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[#f1d9a6] bg-[#fff8e8] px-4 py-2.5 text-[13px] text-[#7a5410]">
+                <History size={15} className="shrink-0" />
+                <div className="min-w-0 flex-1">
+                  Replaced by{' '}
+                  {doc.replaced_by && related(doc.replaced_by) ? (
+                    <button onClick={() => onOpenDoc(doc.replaced_by!)} className="font-semibold underline underline-offset-2">
+                      {cleanName(related(doc.replaced_by)!.file_name)}
+                    </button>
+                  ) : (
+                    'a newer version'
+                  )}
+                  {doc.replaced_at && <> {timeAgo(doc.replaced_at)}</>}
+                  {doc.replaced_by_user && <> by {doc.replaced_by_user}</>}. The assistant does not use this version.
+                </div>
+                <button
+                  onClick={() =>
+                    run('restore', async () => {
+                      await api.restoreDocument(doc.doc_id)
+                      await onChanged()
+                      return 'Restored: the assistant can use this version again'
+                    })
+                  }
+                  disabled={busy === 'restore'}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-[12.5px] font-semibold text-tt-navy ring-1 ring-[#f1d9a6] hover:bg-[#fffdf6] disabled:opacity-50"
+                >
+                  {busy === 'restore' && <LoaderCircle size={13} className="animate-spin" />} Restore this version
+                </button>
+              </div>
+            )}
+            {doc.replaces && (
+              <div className="flex items-center gap-2 rounded-xl bg-tt-mist/60 px-4 py-2 text-[12.5px] text-tt-slate">
+                <History size={14} className="shrink-0" />
+                <span>
+                  Updated version of{' '}
+                  {related(doc.replaces) ? (
+                    <button onClick={() => onOpenDoc(doc.replaces!)} className="font-semibold text-tt-navy underline underline-offset-2">
+                      {cleanName(related(doc.replaces)!.file_name)}
+                    </button>
+                  ) : (
+                    'an older document'
+                  )}
+                  , which is hidden from the assistant.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         <AnimatePresence>
           {suggestion && (
