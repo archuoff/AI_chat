@@ -53,3 +53,38 @@ Every ingested document keeps a small signature (`ingestion/similarity.py`): has
 deleting the update brings the old version back, and an update of a confidential document stays confidential. The previous original of
 an in-place update is archived under `data/sources/<doc_id>/versions/`. Thresholds: `SIM_*` in `app/config.py` (calibrate them on real files).
 Tests: `pytest backend/tests` (fake embedders, no model download).
+
+## Database: SQLite or PostgreSQL
+Accounts, usage events, upload decisions and picture records are SQL tables; chat memory (follow-up context) is stored by LangGraph in
+the same database. With `DATABASE_URL` empty everything uses SQLite files in `data\` (`app.db`, `chat_memory.sqlite`). With
+`DATABASE_URL=postgresql+psycopg://user:password@host:5432/dbname` everything uses PostgreSQL. Document files (`data\sources`, `data\images`)
+and the Qdrant search store are separate and unaffected.
+
+**Schema changes** are Alembic migrations (`backend/migrations`). The app upgrades the database to the latest revision at start-up (on
+PostgreSQL under a lock, so two processes never race). A database created by an older version is adopted without touching its rows. For
+a developer adding a column: change the model, then `alembic revision --autogenerate -m "what changed"` in `backend\`, review the file,
+commit it. LangGraph's own `checkpoint*` tables are created by LangGraph and are not part of Alembic.
+
+**Set up a local PostgreSQL (Windows, once):**
+1. Install PostgreSQL 16 or newer (EDB installer from postgresql.org, or Docker: `docker run -d --name kp-pg -p 5432:5432 -e POSTGRES_PASSWORD=admin -v kp-pg:/var/lib/postgresql/data postgres:16`).
+2. Create the user and database (psql as the `postgres` user):
+   ```sql
+   CREATE ROLE kp_user LOGIN PASSWORD 'choose-a-password';
+   CREATE DATABASE knowledge_partner OWNER kp_user ENCODING 'UTF8';
+   ```
+3. Put `DATABASE_URL=postgresql+psycopg://kp_user:choose-a-password@localhost:5432/knowledge_partner` in `backend\.env`.
+4. **Move the existing accounts** (stop the backend first; the SQLite file is only read, never changed):
+   ```powershell
+   cd C:\KG\backend
+   .\.venv\Scripts\python.exe -m app.cli migrate-db
+   ```
+   It creates the tables, copies users (with their ids, roles, domains and password hashes), usage and picture records, moves the id
+   counters, and prints row counts and checksums for both sides. Re-run with `--replace` to empty and copy again. Chat memory is not copied:
+   conversations start empty on PostgreSQL.
+5. Start the backend and sign in with an existing account.
+
+**Back up / restore:** `pg_dump -Fc -U kp_user knowledge_partner > kp.dump` and `pg_restore -U kp_user -d knowledge_partner --clean kp.dump`.
+**Go back to SQLite:** empty `DATABASE_URL` again; the old `data\app.db` still holds everything up to the day of the copy.
+
+**Tests:** `pip install -r requirements-dev.txt`, then `pytest backend/tests`. Set `TEST_DATABASE_URL=postgresql+psycopg://user:pw@host/testdb`
+(an empty throw-away database: its `public` schema is dropped for every test) to run the same suite on PostgreSQL.

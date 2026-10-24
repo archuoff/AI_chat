@@ -1,13 +1,16 @@
-"""Account database (SQLAlchemy 2.0). SQLite by default; set DATABASE_URL for Postgres etc."""
+"""Account database (SQLAlchemy 2.0). SQLite by default; DATABASE_URL=postgresql+psycopg://... selects PostgreSQL.
+
+The schema is owned by Alembic (backend/migrations): init_db() upgrades the database to the latest revision."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, create_engine, event
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from ..config import get_settings
+from ..config import BASE_DIR, get_settings
 
 ROLES = ("user", "superuser", "developer")
 
@@ -82,24 +85,54 @@ class UploadDecision(Base):
 
 _engine = None
 SessionLocal = sessionmaker(expire_on_commit=False)
+MIGRATIONS_DIR = BASE_DIR / "migrations"
+
+
+def make_engine(url: str):
+    """Engine for a SQLite file or a PostgreSQL server (UTC session time zone, pooled connections)."""
+    if url.startswith("sqlite"):
+        if url.startswith("sqlite:///") and url != "sqlite:///:memory:":
+            Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+        engine = create_engine(url, connect_args={"check_same_thread": False})
+
+        @event.listens_for(engine, "connect")
+        def _sqlite_pragmas(conn, _):  # foreign keys + concurrent readers
+            cur = conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.close()
+
+        return engine
+    s = get_settings()
+    return create_engine(url, pool_pre_ping=True, pool_size=s.db_pool_size, max_overflow=s.db_max_overflow,
+                         pool_recycle=s.db_pool_recycle_s, connect_args={"options": "-c timezone=UTC"})
+
+
+def run_migrations(engine) -> None:
+    """Bring the database to the latest schema revision. A database created before migrations existed
+    (tables made by create_all) is handled by the idempotent baseline revision. One process at a time on PostgreSQL."""
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option("script_location", str(MIGRATIONS_DIR))
+    with engine.begin() as conn:
+        if engine.dialect.name == "postgresql":
+            conn.exec_driver_sql("SELECT pg_advisory_xact_lock(7240011)")  # released when this transaction ends
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "head")
 
 
 def init_db() -> None:
     global _engine
     if _engine is not None:
         return
-    url = get_settings().database_url
-    if url.startswith("sqlite:///"):
-        Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
-        _engine = create_engine(url, connect_args={"check_same_thread": False})
-
-        @event.listens_for(_engine, "connect")
-        def _sqlite_pragmas(conn, _):  # foreign keys + concurrent readers
-            cur = conn.cursor()
-            cur.execute("PRAGMA foreign_keys=ON")
-            cur.execute("PRAGMA journal_mode=WAL")
-            cur.close()
-    else:
-        _engine = create_engine(url, pool_pre_ping=True)
-    Base.metadata.create_all(_engine)
-    SessionLocal.configure(bind=_engine)
+    engine = make_engine(get_settings().db_url)
+    try:
+        run_migrations(engine)
+    except OperationalError as e:  # server down, wrong password, unknown database: say what to check (never print the password)
+        raise RuntimeError(f"Cannot open the database {engine.url.render_as_string(hide_password=True)}: "
+                           f"{str(e.orig).strip().splitlines()[0] if e.orig else e}. Check that the server is running and that "
+                           "DATABASE_URL in backend\\.env is correct.") from e
+    _engine = engine
+    SessionLocal.configure(bind=engine)

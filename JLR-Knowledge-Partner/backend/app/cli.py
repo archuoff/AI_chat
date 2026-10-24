@@ -60,6 +60,38 @@ def _create_user(a) -> int:
     return 0
 
 
+def _migrate_db(a) -> int:
+    from .config import BASE_DIR, get_settings
+    from .dbcopy import copy_database
+
+    source = a.source or f"sqlite:///{(BASE_DIR / 'data' / 'app.db').as_posix()}"
+    target = a.target or get_settings().db_url
+    if not target.startswith(("postgres", "postgresql")):
+        print("The target must be a PostgreSQL URL: pass --target or set DATABASE_URL (postgresql+psycopg://user:password@host:5432/dbname).")
+        return 2
+    if target.startswith(("postgres://", "postgresql://")):
+        target = "postgresql+psycopg://" + target.split("://", 1)[1]
+    try:
+        reports = copy_database(source, target, replace=a.replace)
+    except ValueError as e:
+        print(e)
+        return 2
+    ok = True
+    for r in reports:
+        if r.skipped:
+            print(f"{r.table:18} skipped ({r.skipped})")
+            continue
+        flag = "ok" if r.ok else "MISMATCH"
+        ok &= r.ok
+        extra = f", {r.truncated_values} value(s) shortened to the column length" if r.truncated_values else ""
+        print(f"{r.table:18} {r.source_rows:>7} rows -> {r.target_rows:>7}  {flag}{extra}")
+        for name, (x, y) in r.checks.items():
+            if x != y:
+                print(f"    {name}: source {x} / target {y}")
+    print("Copy complete and verified." if ok else "Copy finished but the checks above do not match: do not switch over.")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser(prog="python -m app.cli")
@@ -78,6 +110,10 @@ def main(argv: list[str] | None = None) -> int:
     p_d.add_argument("doc_id")
     p_x = sub.add_parser("extract-images", help="extract pictures of indexed documents (no re-embedding of text)")
     p_x.add_argument("doc_ids", nargs="*", help="default: every document")
+    p_m = sub.add_parser("migrate-db", help="copy accounts, usage and picture records from SQLite to PostgreSQL")
+    p_m.add_argument("--source", default="", help="SQLAlchemy URL of the SQLite database (default: data/app.db)")
+    p_m.add_argument("--target", default="", help="PostgreSQL URL (default: DATABASE_URL)")
+    p_m.add_argument("--replace", action="store_true", help="empty the target tables first if they already hold data")
     p_g = sub.add_parser("build-signatures", help="build the similar-document data of documents ingested earlier (no re-embedding)")
     p_g.add_argument("doc_ids", nargs="*", help="default: every document without one")
     p_u = sub.add_parser("create-user", help="create an account (works while the API is running)")
@@ -90,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if a.cmd == "create-user":  # account DB only: no Qdrant needed
         return _create_user(a)
+    if a.cmd == "migrate-db":
+        return _migrate_db(a)
 
     store = get_store()
     try:

@@ -54,16 +54,9 @@ class DocImage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-_ready = False
-
-
 def _db():
-    """Session factory, making sure the picture table exists (the account DB may have been created before)."""
-    global _ready
-    if not _ready:
-        init_db()
-        Base.metadata.create_all(SessionLocal.kw["bind"], tables=[DocImage.__table__])
-        _ready = True
+    """Session factory; init_db() has applied the migrations (the picture table is part of the baseline revision)."""
+    init_db()
     return SessionLocal()
 
 

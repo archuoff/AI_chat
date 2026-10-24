@@ -1,5 +1,6 @@
 """Test app: temporary Qdrant / accounts / uploads and tiny fake embedders (the real models need a download)."""
 import hashlib
+import os
 import re
 import sys
 from pathlib import Path
@@ -44,9 +45,32 @@ class FakeSparse:
         return self._pair(text)
 
 
+PG_URL = os.environ.get("TEST_DATABASE_URL", "")  # e.g. postgresql+psycopg://kp:pw@127.0.0.1:5433/kp_test
+
+
+def reset_postgres(url: str) -> None:
+    """Empty database: drop every table (ours, Alembic's and LangGraph's) by recreating the public schema."""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+    engine.dispose()
+
+
 @pytest.fixture()
-def api(tmp_path, monkeypatch):
-    for k, v in {"QDRANT_PATH": tmp_path / "q", "UPLOAD_DIR": tmp_path / "uploads", "DATABASE_URL": f"sqlite:///{tmp_path / 'app.db'}",
+def db_url(tmp_path):
+    """A fresh empty database URL for the test: SQLite file, or PostgreSQL when TEST_DATABASE_URL is set."""
+    if PG_URL:
+        reset_postgres(PG_URL)
+        return PG_URL
+    return f"sqlite:///{tmp_path / 'app.db'}"
+
+
+@pytest.fixture()
+def api(tmp_path, monkeypatch, db_url):
+    for k, v in {"QDRANT_PATH": tmp_path / "q", "UPLOAD_DIR": tmp_path / "uploads", "DATABASE_URL": db_url,
                  "CHAT_MEMORY_PATH": tmp_path / "chat.sqlite", "RERANK_ENABLED": "false", "AZURE_OPENAI_ENDPOINT": ""}.items():
         monkeypatch.setenv(k, str(v))
     from fastapi.testclient import TestClient
@@ -69,6 +93,9 @@ def api(tmp_path, monkeypatch):
     token = client.post("/api/auth/login", json={"username": "dev", "password": "password123"}).json()["access_token"]
     client.headers["Authorization"] = f"Bearer {token}"
     yield client
+    from app.graphs.chat_graph import close_chat_memory
+    close_chat_memory()
+    auth_db._engine.dispose()
     store.get_store().close()
     store.get_store.cache_clear()
     config.get_settings.cache_clear()

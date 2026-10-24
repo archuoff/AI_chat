@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from sqlalchemy import case, func, select
 
@@ -13,10 +13,10 @@ def record(user_id: int, *, kind: str = "question", session_id: str = "", questi
            usage: dict | None = None, latency_ms: int = 0, mode: str = "", intent: str = "", found: bool = True) -> None:
     u = usage or {}
     with SessionLocal() as db:
-        db.add(UsageEvent(user_id=user_id, kind=kind, session_id=session_id[:128], question_chars=len(question),
+        db.add(UsageEvent(user_id=user_id, kind=kind[:32], session_id=session_id[:128], question_chars=len(question),
                           input_tokens=int(u.get("input_tokens", 0)), output_tokens=int(u.get("output_tokens", 0)),
-                          llm_calls=int(u.get("llm_calls", 0)), latency_ms=latency_ms, mode=mode or "",
-                          intent=intent or "", found=found))
+                          llm_calls=int(u.get("llm_calls", 0)), latency_ms=latency_ms, mode=(mode or "")[:32],
+                          intent=(intent or "")[:32], found=found))
         db.commit()
 
 
@@ -44,7 +44,7 @@ def summary(days: int) -> dict:
                                    UsageEvent.output_tokens).where(UsageEvent.created_at >= since)).all()
     daily: dict[str, dict] = defaultdict(lambda: {"questions": 0, "tokens": 0})
     for created, kind, i, o in events:
-        day = created.date().isoformat()
+        day = (created if created.tzinfo is None else created.astimezone(timezone.utc)).date().isoformat()  # UTC day
         daily[day]["questions"] += kind == "question"
         daily[day]["tokens"] += (i or 0) + (o or 0)
     today = utcnow().date()

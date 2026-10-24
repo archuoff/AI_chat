@@ -43,7 +43,8 @@ Manual alternative, two terminals:
   * Move to another domain (labels updated in place, verified) or let Azure OpenAI *Suggest* the domain
 
 ## Accounts & access
-Sign-in is JWT based; accounts live in SQLite (`backend\data\app.db`, switchable to Postgres via `DATABASE_URL`).
+Sign-in is JWT based; accounts, usage and picture records live in SQLite (`backend\data\app.db`) by default, or in PostgreSQL when
+`DATABASE_URL` is set (see `backend\README.md`, section *Database*).
 
 | Role | Can do |
 |---|---|

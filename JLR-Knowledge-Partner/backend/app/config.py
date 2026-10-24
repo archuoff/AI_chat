@@ -100,8 +100,24 @@ class Settings(BaseSettings):
 
     # ---------------- accounts / auth
     database_url: str = f"sqlite:///{(BASE_DIR / 'data' / 'app.db').as_posix()}"  # any SQLAlchemy URL (e.g. Postgres)
+    db_pool_size: int = 5  # PostgreSQL connection pool (ignored for SQLite)
+    db_max_overflow: int = 10
+    db_pool_recycle_s: int = 1800
     jwt_secret: str = ""  # empty -> generated once and kept in data/.jwt_secret
     jwt_expire_minutes: int = 720
+
+    @property
+    def db_url(self) -> str:
+        """SQLAlchemy URL; plain postgres:// and postgresql:// are routed to the psycopg 3 driver."""
+        url = self.database_url.strip()
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
+
+    @property
+    def db_is_postgres(self) -> bool:
+        return self.db_url.startswith("postgresql")
 
     @property
     def chunks_collection(self) -> str:

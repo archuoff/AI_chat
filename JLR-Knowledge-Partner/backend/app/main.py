@@ -30,7 +30,7 @@ from .classify import suggest_domain
 from .cli import _files
 from .config import get_settings
 from .domains import UNASSIGNED, domains_payload, validate_domain
-from .graphs.chat_graph import config_for, delete_session, get_chat_graph, history_of, result_of, run_chat, turn_input
+from .graphs.chat_graph import close_chat_memory, config_for, delete_session, get_chat_graph, history_of, result_of, run_chat, turn_input
 from .graphs.ingest_graph import rebuild_signature, refresh_images, run_ingest, source_file
 from .images import catalog as image_catalog
 from .images import describe as image_describe
@@ -57,6 +57,7 @@ async def lifespan(_: FastAPI):
     get_chat_graph()
     yield
     store.close()
+    close_chat_memory()
 
 
 app = FastAPI(title="JLR Knowledge Partner API", version="0.2.0", lifespan=lifespan)
@@ -270,11 +271,11 @@ def commit_upload(req: CommitRequest, p: Principal = Depends(developer)):
 def _log_decision(p: Principal, item: uploads.Pending, req: CommitRequest, report: dict) -> None:
     try:
         with SessionLocal() as db:
-            db.add(UploadDecision(user_id=p.id, check_id=item.check_id, file_name=item.file_name, domain=req.domain,
-                                  intent=req.intent, replaces=req.replaces or "", exact=item.found.get("exact", []),
+            db.add(UploadDecision(user_id=p.id, check_id=item.check_id[:64], file_name=item.file_name[:255], domain=req.domain[:64],
+                                  intent=req.intent, replaces=(req.replaces or "")[:64], exact=item.found.get("exact", []),
                                   suggestions=[{"doc_id": s["doc_id"], "label": s["label"], "scores": s["scores"]}
                                                for s in item.found.get("suggestions", [])],
-                                  result_status=report.get("status", "")))
+                                  result_status=report.get("status", "")[:16]))
             db.commit()
     except Exception:  # noqa: BLE001 - the log must never fail an upload
         log.warning("could not log the upload decision", exc_info=True)

@@ -8,7 +8,8 @@
                    ▼ (good, or already retried)
                  generate ──► END
 
-State is checkpointed per session (thread_id) in SQLite, so follow-up questions work across restarts.
+State is checkpointed per session (thread_id) in the database (PostgreSQL when DATABASE_URL selects it, else a SQLite file),
+so follow-up questions work across restarts.
 Custom stream events (via get_stream_writer): {"type": "status" | "token" | "reset", ...}
 """
 from __future__ import annotations
@@ -191,17 +192,46 @@ def build_chat_graph(checkpointer=None):
 
 
 _graph = None
-_checkpointer: SqliteSaver | None = None
+_checkpointer: Any = None  # SqliteSaver | PostgresSaver
+_pool: Any = None  # PostgreSQL connection pool of the checkpointer
+
+
+def _postgres_checkpointer():
+    """LangGraph's PostgresSaver on its own small pool. It creates and owns its checkpoint tables (outside Alembic)."""
+    from langgraph.checkpoint.postgres import PostgresSaver
+    from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
+
+    s = get_settings()
+    global _pool
+    _pool = ConnectionPool(conninfo=s.db_url.replace("postgresql+psycopg://", "postgresql://", 1), min_size=1,
+                           max_size=max(s.db_pool_size, 2), open=True,
+                           kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row,
+                                   "options": "-c timezone=UTC"})
+    saver = PostgresSaver(_pool)
+    saver.setup()
+    return saver
 
 
 def get_chat_graph():
     global _graph, _checkpointer
     if _graph is None:
-        path = Path(get_settings().chat_memory_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _checkpointer = SqliteSaver(sqlite3.connect(str(path), check_same_thread=False))
+        s = get_settings()
+        if s.db_is_postgres:
+            _checkpointer = _postgres_checkpointer()
+        else:
+            path = Path(s.chat_memory_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _checkpointer = SqliteSaver(sqlite3.connect(str(path), check_same_thread=False))
         _graph = build_chat_graph(_checkpointer)
     return _graph
+
+
+def close_chat_memory() -> None:
+    global _graph, _checkpointer, _pool
+    if _pool is not None:
+        _pool.close()
+    _graph = _checkpointer = _pool = None
 
 
 def turn_input(question: str, filters: dict | None, image_ref: str | None = None) -> ChatState:

@@ -14,8 +14,11 @@ langchain-openai>=1.0
 langchain-text-splitters>=1.0
 azure-identity>=1.19   # Entra ID (keyless) auth for Azure OpenAI
 
-# Auth / accounts (SQLite by default; DATABASE_URL can point to Postgres)
+# Auth / accounts (SQLite by default; DATABASE_URL=postgresql+psycopg://... selects PostgreSQL)
 sqlalchemy>=2.0
+alembic>=1.13  # versioned schema migrations (SQLite and PostgreSQL)
+psycopg[binary,pool]>=3.2  # PostgreSQL driver + connection pool
+langgraph-checkpoint-postgres>=2.0  # chat memory on PostgreSQL
 pyjwt>=2.9
 pwdlib[argon2]>=0.2.1
 
