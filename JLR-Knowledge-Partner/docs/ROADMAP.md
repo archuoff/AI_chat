@@ -27,6 +27,8 @@
 
 7. **TO DO (next session):** Excel transposed tables: one card per vehicle (column) for comparison questions, rows kept as fallback.
 
+8. **DONE (code + tests; check on your real documents):** retrieval no longer lets one document crowd out the others that hold the same facts: a second search without the hogging document, and guaranteed places per document (`DIVERSIFY_DOCUMENTS`, `EVIDENCE_MIN_PER_DOC`, `EVIDENCE_MAX_DOC_SHARE`, `HOGGING_DOC_SHARE`). Still open: show "also found in ..." when several documents carry the same fact.
+
 ## Later
 - Experimental pipeline: apply Analyst proposals and re-extract; fix FMEA typing; picture straddle judge; review inbox; run on real Radar / FMEA files; wire into `app/`.
 - Retrieval Phase 1 (trace log, truncation notices, answer verification, weak-evidence retry, bigger eval set).

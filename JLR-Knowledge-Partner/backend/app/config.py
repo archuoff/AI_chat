@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     llm_planning: Literal["always", "follow-ups"] = "always"
     llm_judge: bool = True
     judge_candidates: int = 24
+    # One document must not crowd out the others that hold the same facts (e.g. a sheet that copies other documents' content)
+    diversify_documents: bool = True
+    hogging_doc_share: float = 0.5  # a document holding more than this share of the candidates also gets a second search without it
+    evidence_min_per_doc: int = 2  # every document with equally strong evidence keeps at least this many places
+    evidence_max_doc_share: float = 0.6  # ... and no document takes more than this share of the places
     link_pictures: bool = True  # a selected row / slide also brings its pictures, and a selected picture its row / slide text
     max_linked_chunks: int = 8  # cap per question
     max_table_rows: int = 30  # list/comparison questions: rows pulled in from a qualifying table

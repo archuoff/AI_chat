@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import time
 from typing import Any
@@ -36,6 +37,49 @@ def _merge_filters(base: dict | None, extra: dict) -> dict:
     return {**(base or {}), **extra}
 
 
+def _dominant_docs(cands: dict[str, dict], share: float) -> list[str]:
+    """Documents that hold more than `share` of a (big enough) candidate pool: they may be crowding the others out."""
+    if len(cands) < 10:
+        return []
+    counts: dict[str, int] = {}
+    for c in cands.values():
+        counts[c["doc_id"]] = counts.get(c["doc_id"], 0) + 1
+    return [d for d, n in counts.items() if n / len(cands) > share]  # strictly more: a 50 / 50 split hogs nothing
+
+
+def _diversify(units: list[dict], k: int, min_per_doc: int, max_share: float) -> list[dict]:
+    """units are in rank order. Keep k of them so that every document with equally strong evidence has at least
+    `min_per_doc` places and no document has more than `max_share` of them; the rest go by rank. Order is kept."""
+    doc = lambda u: u["chunks"][0]["doc_id"]  # noqa: E731
+    by_doc: dict[str, list[int]] = {}
+    for i, u in enumerate(units):
+        by_doc.setdefault(doc(u), []).append(i)
+    if len(by_doc) < 2 or len(units) <= k and all(len(v) <= max(min_per_doc, math.ceil(max_share * k)) for v in by_doc.values()):
+        return units[:k]
+    top = max((u.get("grade") or 0) for u in units)
+    cap = max(min_per_doc, math.ceil(max_share * k))
+    chosen: set[int] = set()
+    for d, idxs in sorted(by_doc.items(), key=lambda kv: kv[1][0]):  # best-ranked document first
+        strong = [i for i in idxs if (units[i].get("grade") or 0) >= top]  # a weak match never pushes out a strong one
+        for i in strong[:min_per_doc]:
+            if len(chosen) < k:
+                chosen.add(i)
+    count: dict[str, int] = {}
+    for i in chosen:
+        count[doc(units[i])] = count.get(doc(units[i]), 0) + 1
+    for i, u in enumerate(units):
+        if len(chosen) >= k:
+            break
+        if i not in chosen and count.get(doc(u), 0) < cap:
+            chosen.add(i)
+            count[doc(u)] = count.get(doc(u), 0) + 1
+    for i in range(len(units)):  # still room (every other document is capped): fill by rank
+        if len(chosen) >= k:
+            break
+        chosen.add(i)
+    return [units[i] for i in sorted(chosen)]
+
+
 def _collect(plan: dict, user_filters: dict | None, named_sheets: list[str]) -> dict[str, dict]:
     s = get_settings()
     store = get_store()
@@ -51,6 +95,10 @@ def _collect(plan: dict, user_filters: dict | None, named_sheets: list[str]) -> 
         add(store.search(q, s.retrieve_candidates, user_filters))
         if plan.get("sheets"):
             add(store.search(q, s.retrieve_candidates // 2, _merge_filters(user_filters, {"location.sheet": plan["sheets"]})))
+    dominant = _dominant_docs(cands, s.hogging_doc_share) if s.diversify_documents else []
+    if dominant:  # one document fills the pool: look again at everything else, so a document with the same facts is not lost
+        for q in plan.get("search_queries") or [plan["standalone_question"]]:
+            add(store.search(q, s.retrieve_candidates // 2, _merge_filters(user_filters, {"!doc_id": dominant})))
     for id_ in plan.get("ids", []):
         hits = store.search(id_, 100, user_filters, mode="keyword")
         add([h for h in hits if id_.lower() in h["text"].lower()], exact=True)
@@ -312,9 +360,13 @@ def retrieve(question: str, plan: dict, user_filters: dict | None = None, timing
             u["grade"] = verdict.get(i, 0)
         selected = sorted((u for u in pool if u["grade"]), key=lambda u: (u["grade"], order(u)), reverse=True)
         exact = [u for u in pool if any(c.get("exact") for c in u["chunks"]) and u not in selected]
-        selected = (selected + exact)[: s.top_k + 2]
+        selected = selected + exact
+        selected = (_diversify(selected, s.top_k + 2, s.evidence_min_per_doc, s.evidence_max_doc_share)
+                    if s.diversify_documents else selected[: s.top_k + 2])
     else:
-        selected = [u for u in pool if _passes_gates(u)][: s.top_k]
+        selected = [u for u in pool if _passes_gates(u)]
+        selected = (_diversify(selected, s.top_k, s.evidence_min_per_doc, s.evidence_max_doc_share)
+                    if s.diversify_documents else selected[: s.top_k])
         if structured_on and not selected and not any(_passes_gates(u) for u in sheet_rows):
             sheet_rows = []  # nothing relevant at all -> "not found"
     if not selected and not sheet_rows:
