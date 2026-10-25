@@ -420,12 +420,14 @@ class Finder:
         f["header_rows"] = header_rows
         rest = [r for r in body if r not in header_rows]
         data, sections = [], []
+        # a section row is one text cell spanning the table (a group label) between rows of values; it may open the body
         for i, r in enumerate(rest):
             its = rows[r]
             if not its:
                 continue
             single = len(its) == 1 and its[0].kind == "text" and (its[0].span >= 2 or len(rest) > 2)
-            if single and 0 < i < len(rest) - 1 and len(rows[rest[i + 1]]) >= 2 and any(len(rows[p]) >= 2 for p in rest[:i]):
+            after_multi = i + 1 < len(rest) and len(rows[rest[i + 1]]) >= 2
+            if single and after_multi and (i == 0 or any(len(rows[p]) >= 2 for p in rest[:i])):
                 sections.append(r)
             else:
                 data.append(r)

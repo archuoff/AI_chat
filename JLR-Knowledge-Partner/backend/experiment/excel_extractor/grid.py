@@ -248,11 +248,15 @@ def _read_sheet(ws, fws, index: int, formulas_read: bool) -> SheetData:
         data.cells[(r, c)] = rec
 
     sh.non_empty = sum(1 for x in data.cells.values() if x.v is not None)
-    for h in getattr(ws, "_hyperlinks", []):
-        sh.links.append(Link(ref=str(h.ref), target=str(h.target or ""), location=str(h.location or ""), tip=str(h.tooltip or "")))
-        key = _first_cell(str(h.ref))
-        if key in data.cells:
-            data.cells[key].flags.append("link")
+    # openpyxl keeps hyperlinks on their cells (the sheet's relationship targets are resolved there)
+    for (r, c), cell in ws._cells.items():
+        h = cell.hyperlink
+        if h is None:
+            continue
+        ref = cell.coordinate
+        sh.links.append(Link(ref=ref, target=str(h.target or ""), location=str(h.location or ""), tip=str(h.tooltip or "")))
+        if (r, c) in data.cells:
+            data.cells[(r, c)].flags.append("link")
     for t in ws.tables.values():
         sh.tables.append({"name": t.name, "ref": t.ref, "header_rows": t.headerRowCount if t.headerRowCount is not None else 1,
                           "columns": [col.name for col in t.tableColumns]})
@@ -264,9 +268,3 @@ def _read_sheet(ws, fws, index: int, formulas_read: bool) -> SheetData:
         sh.defined_names.append({"name": "Print_Area", "refers_to": str(ws.print_area)})
     return data
 
-
-def _first_cell(ref: str) -> tuple[int, int]:
-    from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
-
-    col, row = coordinate_from_string(ref.split(":")[0])
-    return row, column_index_from_string(col)

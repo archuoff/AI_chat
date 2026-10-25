@@ -195,7 +195,7 @@ def _text(el) -> str:
 
 def _xfrm(el):
     """(off x, off y, ext cx, ext cy, chOff x, chOff y, chExt cx, chExt cy) of the object's transform, or None."""
-    x = el.find("{*}spPr/{*}xfrm") or el.find("{*}grpSpPr/{*}xfrm") or el.find("{*}xfrm")
+    x = next((e for e in (el.find("{*}spPr/{*}xfrm"), el.find("{*}grpSpPr/{*}xfrm"), el.find("{*}xfrm")) if e is not None), None)
     if x is None:
         return None
     off, ext = x.find("{*}off"), x.find("{*}ext")
