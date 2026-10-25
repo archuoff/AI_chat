@@ -1,5 +1,7 @@
 """Deterministic noise removal for PDF, Word and PowerPoint (no AI, same result every time).
 
+A picture or a table row that shows up on `clean_repeat_pages` (default 4) or more pages / slides is a logo, watermark
+or header / footer table: noise.
 Text: page numbers, separator lines, table-of-contents dot leaders, confidentiality / boilerplate lines and lines that
 repeat on many pages or slides (running headers and footers, document ids, "Slide 3") are removed.
 Pictures: icons, thin lines and dividers, blank images, logos / watermarks repeated across pages or slides and exact
@@ -17,6 +19,7 @@ import re
 from collections import Counter, defaultdict
 from typing import Any
 
+from ..config import get_settings
 from .models import Element, ParsedDocument, RawImage
 
 CLEAN_TYPES = {"pdf", "docx", "pptx"}
@@ -80,6 +83,13 @@ def clean_text_elements(elements: list[Element], file_type: str = "pdf") -> tupl
         if len(examples) < EXAMPLES and line.strip() not in examples:
             examples.append(f"{rule}: {line.strip()[:80]}")
 
+    need_pages = max(2, get_settings().clean_repeat_pages)
+    row_pages: dict[str, set] = defaultdict(set)  # table rows (header / footer tables) repeated on many pages / slides
+    for e in elements:
+        if e.kind == "record" and _unit(e) is not None:
+            row_pages[_norm(e.text)].add(_unit(e))
+    repeated_rows = {k for k, pages in row_pages.items() if len(pages) >= need_pages}
+
     units = {_unit(e) for e in elements if e.kind == "text" and _unit(e) is not None}
     repeated: set[str] = set()
     if len(units) >= MIN_UNITS:  # lines that appear on many pages / slides
@@ -98,6 +108,10 @@ def clean_text_elements(elements: list[Element], file_type: str = "pdf") -> tupl
     kept: list[Element] = []
     dropped = 0
     for e in elements:
+        if e.kind == "record" and _unit(e) is not None and _norm(e.text) in repeated_rows:
+            note("repeated_table_row", e.text.split("\n")[0])
+            dropped += 1
+            continue
         if e.kind != "text":
             kept.append(e)
             continue
@@ -139,7 +153,7 @@ def filter_images(images: list[RawImage], n_units: int) -> tuple[list[RawImage],
     places: dict[str, set] = defaultdict(set)
     for img, d in zip(images, digests):
         places[d].add(_unit(img) if _unit(img) is not None else id(img))
-    need = max(3, math.ceil(0.3 * n_units)) if n_units >= MIN_UNITS else 4
+    need = max(2, get_settings().clean_repeat_pages)  # the same picture on this many pages / slides: logo, watermark, background
     kept: list[RawImage] = []
     seen_here: set[tuple] = set()
     for img, d in zip(images, digests):

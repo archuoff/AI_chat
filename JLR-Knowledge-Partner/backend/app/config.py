@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     semantic_split: bool = True  # embed neighbour sentences to find topic changes (false = size splitter only)
     semantic_percentile: int = 25  # a break needs a similarity in the lowest N % of the section's own values
     expand_section_max_chars: int = 6000  # when one chunk of a section matches, return the whole section up to this size
+    clean_repeat_pages: int = 4  # the same picture / table on this many pages or slides = logo or header / footer = noise
     clean_noise: bool = True  # deterministic noise removal for PDF / Word / PowerPoint (page numbers, repeated headers, logos ...)
     pdf_engine: Literal["auto", "docling", "pypdf"] = "auto"  # auto = Docling when installed, else pypdf (with a warning)
 
@@ -105,6 +106,12 @@ class Settings(BaseSettings):
     vision_reasoning_model: bool = False  # true for gpt-5 / o-series vision deployments
     vision_detail: Literal["low", "high", "auto"] = "high"  # high reads small labels and dimensions on drawings
     vision_max_tokens: int = 700
+    # Cost control (GPT-4o is the only multimodal deployment): pictures inside Excel sheets are mostly photos of parts /
+    # vehicles whose row data is already searchable, so they get a short answer at low detail (85 input tokens flat).
+    vision_excel_mode: Literal["brief", "full"] = "brief"
+    vision_detail_brief: Literal["low", "high", "auto"] = "low"
+    vision_brief_max_tokens: int = 120
+    vision_max_images_per_run: int = 300  # safety cap per describe run (0 = no cap); the rest stays waiting
     vision_concurrency: int = 4
     # optional prices (per 1M tokens) so the cost estimate before a run can show money, not only tokens
     vision_price_input_per_1m: float = 0.0

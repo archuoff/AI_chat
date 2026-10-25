@@ -18,7 +18,7 @@
    Still open: one card per vehicle for comparison (transposed) tables.
    Also DONE: `cleaning.py`, deterministic noise removal for PDF / Word / PowerPoint (page numbers, repeated headers and footers,
    boilerplate, TOC dot leaders, logo / icon / divider / blank / duplicate pictures), reported in `stats["cleaning"]`.
-2. **VLM descriptions with neighbour context**: box title, column header, row label, caption, same-row text; one call per picture.
+2. **DONE (code + tests; real GPT-4o run on the office PC):** VLM descriptions with neighbour context. Excel pictures use a short low-detail answer (`VISION_EXCEL_MODE=brief`), identical pictures are described once and shared, run cap `VISION_MAX_IMAGES_PER_RUN`; the same picture on 4+ pages / slides is noise (`CLEAN_REPEAT_PAGES`), also repeated header / footer table rows.
 3. **Sheet preview draws pictures at their cell** (backend preview JSON + `SheetGrid` / `SheetPreview`).
 4. **DONE (code + tests):** image fetching in retrieval: a selected Excel row brings its pictures and a selected picture brings its row (same for PowerPoint slides), `LINK_PICTURES` / `MAX_LINKED_CHUNKS`. PDF pages: later, with Docling captions.
 5. **PDF: replace `pypdf` with Docling** (layout + tables + OCR, models from a local folder); then reuse steps 2 and 4 for PDF pictures.

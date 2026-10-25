@@ -27,7 +27,7 @@ THUMB_PX = 360
 MIN_SIDE = 32  # smaller than this: icon / bullet
 MIN_AREA = 48 * 48  # small in-cell part photos (~110x75) are real content
 MAX_ASPECT = 8  # wider/taller than 8:1: line, banner, divider
-REPEATED = 3  # the same picture 3+ times in one document: logo / template decoration
+REPEATED = 4  # default: the same picture on 4+ places of a PDF / Word / PowerPoint file = logo / template decoration
 _NS = uuid.UUID("2b6e4f0a-7c1d-4e8b-9a35-5d0c8f1e2a77")
 
 STATUSES = ("waiting", "described", "skipped", "unsupported", "failed")
@@ -93,6 +93,12 @@ def _save(im: Image.Image, path: Path, px: int) -> None:
     im.save(path, "JPEG", quality=85, optimize=True)
 
 
+def _repeat_limit() -> int:
+    from ..config import get_settings
+
+    return max(2, get_settings().clean_repeat_pages)
+
+
 def sync(doc_id: str, images: list[RawImage]) -> dict[str, int]:
     """Replace the document's pictures with the freshly extracted ones. Descriptions and manual
     decisions are kept for pictures that did not change (same bytes), so re-processing never pays twice."""
@@ -125,7 +131,8 @@ def sync(doc_id: str, images: list[RawImage]) -> dict[str, int]:
             img.status, img.reason = "skipped", "Too small (icon or bullet)"
         elif max(w, h) / max(min(w, h), 1) > MAX_ASPECT:
             img.status, img.reason = "skipped", "Line or banner"
-        elif counts[sha] >= REPEATED:
+        elif counts[sha] >= _repeat_limit() and "sheet" not in raw.location:
+            # (not for Excel: the same car photo in several rows is real content, it is described once and shared)
             img.status, img.reason = "skipped", f"Repeated {counts[sha]}× in this document (logo or template)"
         elif n > 1:
             img.status, img.reason = "skipped", "Duplicate of an earlier picture"
@@ -220,8 +227,27 @@ def set_included(image_id: str, included: bool) -> DocImage:
         return img
 
 
+def share_with_duplicates(image_id: str) -> int:
+    """The same picture used in several places (e.g. one car photo in several rows) is described once: the other copies
+    get the same description at no cost, and each gets its own search chunk tied to its own row. Returns how many."""
+    with _db() as db:
+        src = db.get(DocImage, image_id)
+        if src is None or src.status != "described":
+            return 0
+        twins = list(db.scalars(select(DocImage).where(DocImage.doc_id == src.doc_id, DocImage.sha256 == src.sha256,
+                                                       DocImage.id != src.id, DocImage.status == "skipped",
+                                                       DocImage.manual == False)))  # noqa: E712 - SQL comparison
+        n = 0
+        for t in twins:
+            if t.reason.startswith("Duplicate"):
+                t.status, t.reason, t.description, t.described_at = "described", "", src.description, utcnow()
+                n += 1
+        db.commit()
+        return n
+
+
 def record_result(image_id: str, *, description: str = "", error: str = "", decorative: bool = False,
-                  usage: dict | None = None) -> None:
+                  usage: dict | None = None, note: str = "") -> None:
     u = usage or {}
     with _db() as db:
         img = db.get(DocImage, image_id)
@@ -234,7 +260,7 @@ def record_result(image_id: str, *, description: str = "", error: str = "", deco
         elif decorative:
             img.status, img.reason, img.description = "skipped", "Decorative (judged by the vision model)", ""
         else:
-            img.status, img.reason, img.description, img.described_at = "described", "", description, utcnow()
+            img.status, img.reason, img.description, img.described_at = "described", note[:160], description, utcnow()
         db.commit()
 
 

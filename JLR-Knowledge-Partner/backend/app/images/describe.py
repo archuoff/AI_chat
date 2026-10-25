@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import logging
 import math
+import re
 import threading
 import time
 from collections import defaultdict
@@ -22,18 +23,34 @@ log = logging.getLogger(__name__)
 
 PROMPT = """You describe pictures from automotive engineering documents (JLR / Tata Technologies) so engineers can
 find them with a text search. The picture comes from: {where}
-Text around it in the document:
+Context around it in the document (it only says WHERE the picture sits: a hint, never a source of facts about what it shows):
 {context}
 
-Write 3-8 short factual lines:
-- what it shows (part, assembly, section view, CAD screenshot, test photo, chart, diagram, table image ...)
-- every readable label, part number, code, callout and note - transcribe exactly
-- dimensions, values, tolerances, units and materials that are visible
-- defects, failure signs or highlighted areas, if any
+Answer with these labelled lines (leave out a line that does not apply):
+Kind: photo / CAD / section view / diagram / chart / table / drawing
+Summary: 2-4 short factual lines: what it shows (part, assembly, view, test setup ...)
+Visible text: every readable label, part number, code, callout and note, transcribed exactly
+Values: dimensions, tolerances, units and materials that are visible
+Findings: defects, failure signs or highlighted areas, if any
+Context match: yes / no / unsure (does the picture fit the context above?)
 Do not guess what is not visible. If the picture is only a logo, icon, decoration or empty frame, answer exactly: DECORATIVE"""
 
-PROMPT_TOKENS = 260  # instructions + typical context
+# Pictures inside Excel sheets: mostly photos of vehicles / parts, the row data is already searchable -> short, low detail
+PROMPT_BRIEF = """You describe a picture from an automotive engineering workbook (JLR / Tata Technologies) so engineers can
+find it with a text search. It sits at: {where}
+Context from the sheet (it only says WHERE the picture sits: a hint, never a source of facts about what it shows):
+{context}
+
+Answer with at most these three lines:
+Summary: what is visible, in one or two short sentences (vehicle / part / assembly / view)
+Visible text: any readable label or number, verbatim (or "none")
+Context match: yes / no / unsure
+Do not repeat the row data and do not guess. If it is only a logo, icon, decoration or empty frame, answer exactly: DECORATIVE"""
+
+PROMPT_TOKENS = 330  # instructions + typical context (full)
+BRIEF_PROMPT_TOKENS = 240
 OUTPUT_TOKENS = 220
+BRIEF_OUTPUT_TOKENS = 70
 
 _lock = threading.Lock()
 _job: dict[str, Any] = {"state": "idle"}
@@ -50,16 +67,31 @@ def _image_tokens(w: int, h: int, detail: str) -> int:
     return 85 + 170 * math.ceil(w / 512) * math.ceil(h / 512)
 
 
+def _mode(img: catalog.DocImage) -> str:
+    """brief for pictures inside Excel sheets (unless switched off), full for everything else."""
+    in_sheet = "sheet" in (img.location or {})
+    return "brief" if in_sheet and get_settings().vision_excel_mode == "brief" else "full"
+
+
+def _detail(mode: str) -> str:
+    s = get_settings()
+    return s.vision_detail_brief if mode == "brief" else s.vision_detail
+
+
 def estimate(images: list[catalog.DocImage]) -> dict[str, Any]:
     s = get_settings()
-    stored = [(min(i.width, catalog.FULL_PX) if i.width >= i.height else round(i.width * catalog.FULL_PX / max(i.height, 1)),
-               min(i.height, catalog.FULL_PX) if i.height >= i.width else round(i.height * catalog.FULL_PX / max(i.width, 1)))
-              for i in images]
-    tin = sum(_image_tokens(w, h, s.vision_detail) + PROMPT_TOKENS for w, h in stored)
-    tout = OUTPUT_TOKENS * len(images)
+    tin = tout = brief = 0
+    for i in images:
+        mode = _mode(i)
+        w = min(i.width, catalog.FULL_PX) if i.width >= i.height else round(i.width * catalog.FULL_PX / max(i.height, 1))
+        h = min(i.height, catalog.FULL_PX) if i.height >= i.width else round(i.height * catalog.FULL_PX / max(i.width, 1))
+        tin += _image_tokens(w, h, _detail(mode)) + (BRIEF_PROMPT_TOKENS if mode == "brief" else PROMPT_TOKENS)
+        tout += BRIEF_OUTPUT_TOKENS if mode == "brief" else OUTPUT_TOKENS
+        brief += mode == "brief"
     priced = s.vision_price_input_per_1m > 0 or s.vision_price_output_per_1m > 0
     cost = (tin * s.vision_price_input_per_1m + tout * s.vision_price_output_per_1m) / 1e6 if priced else None
-    return {"images": len(images), "input_tokens": tin, "output_tokens": tout, "cost": round(cost, 2) if cost is not None else None}
+    return {"images": len(images), "brief": brief, "input_tokens": tin, "output_tokens": tout,
+            "cost": round(cost, 2) if cost is not None else None}
 
 
 def config() -> dict[str, Any]:
@@ -79,13 +111,37 @@ def cancel() -> None:
             _job["cancel"] = True
 
 
+_LABEL = re.compile(r"^\s*(?:[-*]\s*)?context match\s*:\s*(.*)$", re.IGNORECASE)
+
+
+def parse_answer(text: str) -> tuple[str, bool, str]:
+    """-> (description without the 'Context match' line, is it decorative, note when the context may not fit the picture)"""
+    text = text.strip()
+    if text.upper().rstrip(".") == "DECORATIVE":
+        return "", True, ""
+    lines, note = [], ""
+    for line in text.splitlines():
+        m = _LABEL.match(line)
+        if m:
+            verdict = m.group(1).strip().lower()
+            if verdict.startswith(("no", "unsure")):
+                note = "Context may not match the picture" if verdict.startswith("no") else "Context match unsure"
+        elif line.strip():
+            lines.append(line.rstrip())
+    return "\n".join(lines), False, note
+
+
 def _describe_one(llm, img: catalog.DocImage, file_name: str) -> tuple[str, dict]:
+    s = get_settings()
+    mode = _mode(img)
     where = f"{file_name}, {catalog._where(img.location) or 'document'}"
     data = base64.b64encode(catalog.file_path(img).read_bytes()).decode()
     usage: dict = {}
+    if mode == "brief" and not s.vision_reasoning_model:
+        llm = llm.bind(max_tokens=s.vision_brief_max_tokens)
     msg = llm.invoke([("user", [
-        {"type": "text", "text": PROMPT.format(where=where, context=img.context.strip()[:800] or "(none)")},
-        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{data}", "detail": get_settings().vision_detail}},
+        {"type": "text", "text": (PROMPT_BRIEF if mode == "brief" else PROMPT).format(where=where, context=img.context.strip()[:1000] or "(none)")},
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{data}", "detail": _detail(mode)}},
     ])])
     add_usage(usage, msg)
     return str(msg.content).strip(), usage
@@ -97,6 +153,10 @@ def start_job(user_id: int, doc_ids: list[str] | None = None, image_ids: list[st
     if llm is None:
         raise RuntimeError("No vision deployment configured (AZURE_OPENAI_VISION_DEPLOYMENT)")
     todo = catalog.waiting(doc_ids, image_ids)
+    cap = get_settings().vision_max_images_per_run
+    limited_from = len(todo) if cap and len(todo) > cap else 0
+    if limited_from:
+        todo = todo[:cap]  # a safety cap on cost: the rest stays waiting for the next run
     with _lock:
         if _job.get("state") == "running":
             raise RuntimeError("A describe run is already in progress")
@@ -104,7 +164,8 @@ def start_job(user_id: int, doc_ids: list[str] | None = None, image_ids: list[st
             raise ValueError("No pictures are waiting")
         _job.clear()
         _job.update(state="running", total=len(todo), done=0, described=0, decorative=0, failed=0, input_tokens=0,
-                    output_tokens=0, started_at=time.time(), user_id=user_id, cancel=False, estimate=estimate(todo))
+                    output_tokens=0, started_at=time.time(), user_id=user_id, cancel=False, estimate=estimate(todo),
+                    limited_from=limited_from)
     threading.Thread(target=_run, args=(llm, todo, user_id), daemon=True, name="describe-pictures").start()
     return status()
 
@@ -124,8 +185,10 @@ def _run(llm, todo: list[catalog.DocImage], user_id: int) -> None:
             return
         try:
             text, u = _describe_one(llm, img, names.get(img.doc_id, ""))
-            decorative = text.strip().upper().rstrip(".") == "DECORATIVE"
-            catalog.record_result(img.id, description=text, decorative=decorative, usage=u)
+            description, decorative, note = parse_answer(text)
+            catalog.record_result(img.id, description=description, decorative=decorative, usage=u, note=note)
+            if not decorative:
+                catalog.share_with_duplicates(img.id)  # the same picture elsewhere in the document: no second call
             key = "decorative" if decorative else "described"
         except Exception as e:  # noqa: BLE001 - one bad picture must not stop the run
             u = {}

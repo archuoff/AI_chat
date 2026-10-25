@@ -75,6 +75,24 @@ def test_noise_pictures_are_dropped_and_counted():
     assert doc.stats["cleaning"]["images_dropped"] == {"repeated": 6, "too_small": 1, "extreme_aspect": 1, "blank": 1}
 
 
+def test_picture_on_four_pages_is_noise_but_on_three_is_kept():
+    logo = png(300, 80)
+    def run(n):
+        doc = pages([f"text {i}" for i in range(1, 8)], images=[RawImage(logo, "png", {"page": i}, "") for i in range(1, n + 1)])
+        return len(clean_document(doc).images)
+    assert run(3) == 3 and run(4) == 0
+
+
+def test_header_or_footer_table_repeated_on_pages_is_removed_but_a_data_table_stays():
+    footer = lambda page: Element("record", "Doc no: 123\nOwner: Radar team", [], {"page": page, "table": 1}, {"Doc no": "123"}, "123")  # noqa: E731
+    data = Element("record", "Vehicle: Audi\nRange: 5.5", [], {"page": 2, "table": 2}, {"Vehicle": "Audi"}, "Audi")
+    doc = ParsedDocument("x", "pdf", [footer(i) for i in range(1, 6)] + [data])
+    clean_document(doc)
+    assert doc.elements == [data] and doc.stats["cleaning"]["lines_removed"]["repeated_table_row"] == 5
+    three = ParsedDocument("x", "pdf", [footer(i) for i in range(1, 4)])
+    assert len(clean_document(three).elements) == 3
+
+
 def test_exact_duplicate_in_the_same_place_is_kept_once_and_unknown_formats_are_kept():
     p = png(300, 200, (1, 2, 3))
     doc = pages(["a", "b"], images=[RawImage(p, "png", {"page": 1}, "one"), RawImage(p, "png", {"page": 1}, "two"),
