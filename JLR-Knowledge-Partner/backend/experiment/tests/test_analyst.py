@@ -231,3 +231,14 @@ def test_azure_structured_call_with_mock_http_transport(exported, monkeypatch):
     assert requests[0].get('max_tokens', requests[0].get('max_completion_tokens')) == 6000
     assert requests[0]['messages'][0]['role'] == 'system'
     assert requests[0]['tools'][0]['function']['name'] == 'LayoutProposal'
+
+
+def test_picture_must_sit_inside_its_claimed_target(exported):
+    model, path = read_model(exported)
+    model['sheets'][0]['pictures'] = [{'id': 'p1', 'anchor': {'r0': 3, 'c0': 2, 'r1': 3, 'c1': 2}}]
+    path.write_text(json.dumps(model))
+    item = load_evidence(exported).items[0]
+    # evidence cells are inside the claimed row, but the picture is anchored in row 3, not row 2
+    link = {'picture_id': 'p1', 'target_range': 'A2:B2', 'evidence_cells': ['A2'], 'reason': 'Same row'}
+    result = check_proposal(item, proposal(picture_links=[link]))
+    assert not result['valid_references'] and any('not located in its claimed target' in e for e in result['errors'])

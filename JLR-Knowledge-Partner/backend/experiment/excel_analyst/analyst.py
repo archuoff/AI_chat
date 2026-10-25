@@ -95,6 +95,8 @@ def check_proposal(item: WorkItem, proposal: LayoutProposal) -> dict:
                     errors.append(f'{label}: picture target is outside its region')
                 if not overlaps(box, bounds(_picture_range(pictures[link.picture_id]))):
                     errors.append(f'{label}: linked picture does not intersect its region')
+                if not overlaps(target, bounds(_picture_range(pictures[link.picture_id]))):
+                    errors.append(f'{label}: picture {link.picture_id} is not located in its claimed target {link.target_range}')
                 evidence(link.evidence_cells, f'picture {link.picture_id}', target)
             except ValueError as exc:
                 errors.append(str(exc))
