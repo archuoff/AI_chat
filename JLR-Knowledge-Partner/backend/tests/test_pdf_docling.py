@@ -81,3 +81,13 @@ def test_adapter_feeds_the_existing_chunker(doc):
     assert text.section == ["1 Scope"] and text.location["page"] == 1
     chunks = build_chunks("doc1", parsed, 1200, 150)
     assert chunks and all(c.context.startswith("spec.pdf") for c in chunks)
+
+
+def test_export_blocks_sections_tables_and_pictures_carry_breadcrumbs(doc):
+    ex = export_chunk_ready(doc, "spec.pdf")
+    para = next(b for b in ex["blocks"] if b["text"].startswith("Maximum"))
+    assert para["breadcrumb"] == ["spec.pdf", "1 Scope", "1.1 Range", "Page 1"]
+    assert ex["tables"][0]["breadcrumb"] == ["spec.pdf", "1 Scope", "1.1 Range", "Page 2"]
+    assert {s["title"]: s["breadcrumb"] for s in ex["sections"][1:]}["1.1 Range"] == ["spec.pdf", "1 Scope", "1.1 Range"]
+    pic = ex["pictures"][0]
+    assert pic["breadcrumb"][-1] == "Page 3" and pic["relations"]["section"] == "s4"

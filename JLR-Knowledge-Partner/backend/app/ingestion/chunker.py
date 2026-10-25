@@ -38,6 +38,8 @@ class Chunk:
     fields: dict[str, Any] | None = None
     title: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    breadcrumb: list[str] = field(default_factory=list)  # the path to this chunk: file > sheet / headings > unit > row title
+    relations: dict[str, Any] = field(default_factory=dict)  # group, prev / next chunk in that group, parent, row_key (pictures)
 
     @property
     def embed_text(self) -> str:
@@ -51,10 +53,70 @@ def _location_label(loc: dict[str, Any]) -> str:
     return ""
 
 
+def _unit_label(loc: dict[str, Any]) -> str:
+    for key, label in (("slide", "Slide"), ("page", "Page")):
+        if loc.get(key) is not None:
+            return f"{label} {loc[key]}"
+    return ""
+
+
+def breadcrumb_of(file_name: str, el: Element) -> list[str]:
+    """file > sheet / headings > page or slide > the row's own title: where this piece sits, in the document's own words."""
+    crumbs = [file_name, *el.section]
+    unit = _unit_label(el.location)
+    if unit and unit.lower() not in {c.lower() for c in crumbs}:
+        crumbs.append(unit)
+    if el.kind == "record" and el.title:
+        crumbs.append(el.title)
+    out: list[str] = []
+    for c in crumbs:
+        c = " ".join(str(c).split())
+        if c and (not out or out[-1] != c):
+            out.append(c)
+    return out
+
+
 def _context(file_name: str, el: Element) -> str:
-    parts = [file_name, *el.section]
+    """The breadcrumb as one line (embedded with the chunk, shown to the judge and to the answer step) + row / page."""
+    crumbs = [c for c in breadcrumb_of(file_name, el) if c != _unit_label(el.location)]
     loc = _location_label(el.location)
-    return " › ".join(p for p in parts if p) + (f" ({loc})" if loc else "")
+    return " › ".join(crumbs) + (f" ({loc})" if loc else "")
+
+
+def _link_key(loc: dict[str, Any]) -> str | None:
+    """The key a picture and the text it sits with share: one Excel row, or one slide."""
+    if loc.get("sheet") is not None and loc.get("row") is not None:
+        return f"{loc['sheet']}!{loc['row']}"
+    if loc.get("slide") is not None:
+        return f"slide:{loc['slide']}"
+    return None
+
+
+def _group_of(c: "Chunk") -> str:
+    loc = c.location
+    if c.extra.get("section_key"):
+        return c.extra["section_key"]
+    if c.kind == "record":
+        cols = re.sub(r"\d+", "", str(loc.get("range", "")))
+        if loc.get("sheet") is not None:
+            return f"table:{loc['sheet']}!{cols}"
+        return f"table:{loc.get('section') or loc.get('slide') or ''}#{loc.get('table', '')}"
+    return f"text:{loc.get('sheet') or ''}{_unit_label(loc)}"
+
+
+def add_relations(chunks: list["Chunk"]) -> None:
+    """group (same section / table / page), the chunk before and after it in that group, its parent heading and link key."""
+    last: dict[str, Chunk] = {}
+    for c in chunks:
+        g = _group_of(c)
+        c.relations = {"group": g, "prev": None, "next": None, "parent": c.section[-1] if c.section else None}
+        key = _link_key(c.location)
+        if key:
+            c.relations["row_key"] = key
+        if g in last:
+            c.relations["prev"] = last[g].id
+            last[g].relations["next"] = c.id
+        last[g] = c
 
 
 def _split_record(el: Element, size: int, splitter: RecursiveCharacterTextSplitter) -> list[tuple[str, dict]]:
@@ -170,7 +232,8 @@ def build_chunks(doc_id: str, doc: ParsedDocument, chunk_size: int, chunk_overla
         extra = {"part": part, "parts": parts} if parts > 1 else {}
         extra.update(extra_more or {})
         chunks.append(Chunk(str(uuid.uuid5(_NS, f"{doc_id}:{idx}")), doc_id, idx, el.kind, text,
-                            _context(doc.file_name, el), list(el.section), dict(el.location), fields, el.title, extra))
+                            _context(doc.file_name, el), list(el.section), dict(el.location), fields, el.title, extra,
+                            breadcrumb_of(doc.file_name, el)))
 
     for el, is_section in items:
         if el.kind == "record":
@@ -191,4 +254,5 @@ def build_chunks(doc_id: str, doc: ParsedDocument, chunk_size: int, chunk_overla
             parts = splitter.split_text(el.text)
             for i, text in enumerate(parts, start=1):
                 add(el, text, None, i, len(parts))
+    add_relations(chunks)
     return chunks

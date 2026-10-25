@@ -146,7 +146,8 @@ def _finalise(unit: dict) -> dict:
         "relevance": round(max(unit["score"], _sim_scaled(unit.get("sim", 0.0))), 4),  # shown in the UI
         "doc_id": head["doc_id"], "file_name": head["file_name"],
         "file_type": head["file_type"], "kind": head["kind"], "context": head["context"], "location": head["location"],
-        "section": head.get("section", []), "title": head.get("title"), "text": text, "fields": fields or None,
+        "section": head.get("section", []), "breadcrumb": head.get("breadcrumb") or [], "relations": head.get("relations") or {},
+        "title": head.get("title"), "text": text, "fields": fields or None,
         "exact": any(c.get("exact") for c in chunks), "structured": any(c.get("structured") for c in chunks),
         "chunk_ids": [c["id"] for c in chunks], "image_id": head.get("image_id"), "linked": bool(unit.get("linked")),
     }

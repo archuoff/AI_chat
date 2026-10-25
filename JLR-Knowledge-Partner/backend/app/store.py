@@ -251,7 +251,8 @@ class KGStore:
                 payload = {
                     "doc_id": c.doc_id, "file_name": doc["file_name"], "file_type": doc["file_type"],
                     "chunk_index": c.index, "kind": c.kind, "text": c.text, "context": c.context,
-                    "section": c.section, "location": c.location, "fields": c.fields, "title": c.title,
+                    "section": c.section, "breadcrumb": c.breadcrumb, "relations": c.relations,
+                    "location": c.location, "fields": c.fields, "title": c.title,
                     **c.extra, "meta": meta, "domain": doc.get("domain", UNASSIGNED),
                     "confidential": bool(doc.get("confidential", False)), "superseded": bool(doc.get("superseded", False)),
                     "ingested_at": now,

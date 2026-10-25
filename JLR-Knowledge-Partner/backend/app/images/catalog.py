@@ -287,8 +287,15 @@ def image_chunks(doc_id: str, file_name: str, start_index: int) -> list[Chunk]:
         text = f"Picture: {img.description}" + (f"\nShown with: {near[:400]}" if near else "")
         loc = {**img.location, "image": img.id}
         section = [s for s in [img.location.get("sheet") or img.location.get("section") or "", "Picture"] if s]
+        box = next((l.split(":", 1)[1].strip() for l in img.context.splitlines() if l.startswith("Box title:")), "")
+        crumbs = [c for c in (file_name, *section[:-1], box, "Picture", where) if c]
+        rel: dict[str, Any] = {"group": f"pictures:{doc_id}", "parent": box or (section[0] if section else None)}
+        if img.location.get("sheet") is not None and img.location.get("row") is not None:
+            rel["row_key"] = f"{img.location['sheet']}!{img.location['row']}"
+        elif img.location.get("slide") is not None:
+            rel["row_key"] = f"slide:{img.location['slide']}"
         chunks.append(Chunk(str(uuid.uuid5(_NS, f"{doc_id}:chunk:{img.id}")), doc_id, start_index + len(chunks), "image",
-                            text, context, section, loc, extra={"image_id": img.id}))
+                            text, context, section, loc, extra={"image_id": img.id}, breadcrumb=crumbs, relations=rel))
     return chunks
 
 

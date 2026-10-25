@@ -277,6 +277,6 @@ def cited_sources(answer_text: str, evidence: list[dict]) -> list[dict]:
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer_text)}
     return [{
         "n": e["n"], "file_name": e["file_name"], "file_type": e["file_type"], "doc_id": e["doc_id"],
-        "location": e["location"], "context": e["context"], "title": e.get("title"), "score": e.get("relevance", e["score"]),
+        "location": e["location"], "context": e["context"], "breadcrumb": e.get("breadcrumb") or [], "title": e.get("title"), "score": e.get("relevance", e["score"]),
         "snippet": e["text"][:400], "cited": e["n"] in cited, "image_id": e.get("image_id"),
     } for e in evidence]

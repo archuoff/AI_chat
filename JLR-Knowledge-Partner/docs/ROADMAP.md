@@ -23,6 +23,8 @@
 4. **DONE (code + tests):** image fetching in retrieval: a selected Excel row brings its pictures and a selected picture brings its row (same for PowerPoint slides), `LINK_PICTURES` / `MAX_LINKED_CHUNKS`. PDF pages: later, with Docling captions.
 5. **PDF: replace `pypdf` with Docling** (layout + tables + OCR, models from a local folder); then reuse steps 2 and 4 for PDF pictures.
 
+6. **DONE (code + tests; re-ingest documents to get it):** `breadcrumb` (path to the chunk) and `relations` (group, prev / next, parent, row_key) on every chunk of every format, in the Qdrant payload, the evidence and the Docling JSON; the chunk's `context` line is now built from the breadcrumb.
+
 ## Later
 - Experimental pipeline: apply Analyst proposals and re-extract; fix FMEA typing; picture straddle judge; review inbox; run on real Radar / FMEA files; wire into `app/`.
 - Retrieval Phase 1 (trace log, truncation notices, answer verification, weak-evidence retry, bigger eval set).

@@ -223,14 +223,16 @@ def export_chunk_ready(doc: Any, file_name: str = "", *, images_dir: str | Path 
             block.update(type="heading", level=level, text=title)
         elif kind == "table":
             t = _table(doc, item)
-            t.update(id=f"t{len(tables) + 1}", block_id=block["id"], page=page, bbox=box, heading_path=path())
+            t.update(id=f"t{len(tables) + 1}", block_id=block["id"], page=page, bbox=box, heading_path=path(),
+                     breadcrumb=[x for x in (file_name, *path(), f"Page {page}" if page else "") if x])
             tables.append(t)
             block.update(type="table", table_id=t["id"], text=t["markdown"] or t["caption"])
         elif kind in ("picture", "chart"):
             cls, conf = _picture_class(item)
             pic = {"id": f"p{len(pictures) + 1}", "block_id": block["id"], "page": page, "bbox": box, "kind": kind,
                    "caption": clean_text(item.caption_text(doc) or "") if hasattr(item, "caption_text") else "",
-                   "class": cls, "class_confidence": conf, "heading_path": path(), "image_file": None, "context": ""}
+                   "class": cls, "class_confidence": conf, "heading_path": path(), "image_file": None, "context": "",
+                   "breadcrumb": [x for x in (file_name, *path(), f"Page {page}" if page else "") if x]}
             if images_dir is not None:
                 try:
                     img = item.get_image(doc)
@@ -256,7 +258,8 @@ def export_chunk_ready(doc: Any, file_name: str = "", *, images_dir: str | Path 
                 continue
             block.update(type="paragraph", text=text, docling_label=kind)
         sec = current()
-        block.update(section_id=sec["id"], heading_path=path(), char_count=len(block.get("text", "")))
+        block.update(section_id=sec["id"], heading_path=path(), char_count=len(block.get("text", "")),
+                     breadcrumb=[x for x in (file_name, *path(), f"Page {page}" if page else "") if x])
         if blocks:
             block["prev"] = blocks[-1]["id"]
             blocks[-1]["next"] = block["id"]
@@ -269,6 +272,9 @@ def export_chunk_ready(doc: Any, file_name: str = "", *, images_dir: str | Path 
         before = [b["text"] for b in blocks[max(0, i - 3):i] if b["type"] in _TEXT_TYPES | {"heading"} and b.get("text")]
         after = [b["text"] for b in blocks[i + 1:i + 3] if b["type"] in _TEXT_TYPES and b.get("text")]
         pic["context"] = clean_text("\n".join([*pic["heading_path"][-1:], *before[-2:], *after[:1]]))[:900]
+        near = blocks[max(0, i - 1)], blocks[min(len(blocks) - 1, i + 1)]  # the blocks right before and after it
+        pic["relations"] = {"section": blocks[i]["section_id"], "before": near[0]["id"] if near[0]["id"] != pic["block_id"] else None,
+                            "after": near[1]["id"] if near[1]["id"] != pic["block_id"] else None}
 
     # tables split by a page break: same width, top of the next page, nothing but the table in between
     for a, b in zip(tables, tables[1:]):
@@ -276,6 +282,13 @@ def export_chunk_ready(doc: Any, file_name: str = "", *, images_dir: str | Path 
                 and int(b["block_id"][1:]) == int(a["block_id"][1:]) + 1):
             b["continues"] = a["id"]
 
+    by_id = {s_["id"]: s_ for s_ in sections}
+    for sec in sections:
+        chain, cur = [], sec
+        while cur is not None and cur["id"] != "s0":
+            chain.append(cur["title"])
+            cur = by_id.get(cur["parent"])
+        sec["breadcrumb"] = [file_name, *reversed(chain)]
     for sec in sections:
         sec["char_count"] = sum(blocks[int(i[1:]) - 1]["char_count"] for i in sec["block_ids"])
         sec["block_count"] = len(sec["block_ids"])
