@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     upload_dir: str = str(BASE_DIR / "data" / "uploads")
     chunk_size: int = 1200
     chunk_overlap: int = 150
+    pdf_engine: Literal["auto", "docling", "pypdf"] = "auto"  # auto = Docling when installed, else pypdf (with a warning)
 
     # ---------------- upload suggestions (similar documents; code only, no LLM)
     sim_likely_content: float = 0.5  # share of identical cells / lines that makes a file a "likely update"

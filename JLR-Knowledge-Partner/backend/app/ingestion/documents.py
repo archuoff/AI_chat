@@ -22,6 +22,25 @@ def _media_count(path: Path, prefix: str) -> int:
 
 # ---------------------------------------------------------------- PDF
 def parse_pdf(path: Path) -> ParsedDocument:
+    """Docling (layout + table models) when available; pypdf otherwise. A fallback is always reported as a warning."""
+    from ..config import get_settings
+
+    engine = get_settings().pdf_engine
+    if engine == "pypdf":
+        return _parse_pdf_pypdf(path)
+    try:
+        from .pdf_docling import parse_pdf_docling
+
+        return parse_pdf_docling(path)
+    except Exception as exc:  # noqa: BLE001 - Docling missing, model folder wrong, conversion failed
+        if engine == "docling":
+            raise
+        doc = _parse_pdf_pypdf(path)
+        doc.warnings.append(f"Docling was not used ({type(exc).__name__}: {str(exc)[:160]}); read with pypdf: no tables or headings")
+        return doc
+
+
+def _parse_pdf_pypdf(path: Path) -> ParsedDocument:
     from pypdf import PdfReader
 
     reader = PdfReader(str(path))

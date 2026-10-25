@@ -27,7 +27,9 @@ qdrant-client>=1.12
 fastembed>=0.4
 
 # Document parsers
-pypdf>=5.0
+pypdf>=5.0  # fallback PDF reader
+docling>=2.132  # PDF layout + table models (large: pulls PyTorch; models from DOCLING_ARTIFACTS_PATH). Remove it to run on pypdf only
+docling-core>=2.50  # also enough for the export tests
 python-docx>=1.1
 python-pptx>=1.0
 openpyxl>=3.1
