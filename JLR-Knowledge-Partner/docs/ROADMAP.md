@@ -25,6 +25,8 @@
 
 6. **DONE (code + tests; re-ingest documents to get it):** `breadcrumb` (path to the chunk) and `relations` (group, prev / next, parent, row_key) on every chunk of every format, in the Qdrant payload, the evidence and the Docling JSON; the chunk's `context` line is now built from the breadcrumb.
 
+7. **TO DO (next session):** Excel transposed tables: one card per vehicle (column) for comparison questions, rows kept as fallback.
+
 ## Later
 - Experimental pipeline: apply Analyst proposals and re-extract; fix FMEA typing; picture straddle judge; review inbox; run on real Radar / FMEA files; wire into `app/`.
 - Retrieval Phase 1 (trace log, truncation notices, answer verification, weak-evidence retry, bigger eval set).
