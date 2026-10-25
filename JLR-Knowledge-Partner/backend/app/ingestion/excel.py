@@ -6,7 +6,13 @@ Handles:
   * multi-row headers built from merged cells              -> "Part Dimensions > Width (mm)"
   * section rows inside a table (single-value rows)        -> section label on following rows
   * vertically merged data cells (FMEA hierarchy)          -> value filled down to every row
-  * in-cell pictures / Excel errors (#VALUE! ...)          -> ignored
+  * Place-in-Cell pictures (stored as #VALUE! + rich data)   -> "[picture: alt text]" in the cell, the picture itself is
+                                                                extracted with its column / row / box context
+  * stacked tables with no blank row between them           -> a bold or filled title bar followed by a bold / filled
+                                                                header row starts a new table (not a "section row")
+  * nested section rows                                      -> a wide / bold / filled bar = level 1, a plain label under it = level 2
+  * a vertically merged label over a header + picture row    -> the picture row is data, not a second header row
+  * other Excel errors (#REF! ...)                           -> ignored (listed in the coverage report)
 
 Every decision is recorded (TableInfo + coverage) so the Manage page can show exactly what was
 captured, and a user can correct it with parse options:
@@ -23,11 +29,22 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
+from .incell import InCellPicture, read_incell_pictures
 from .models import Element, ParsedDocument, RawImage
 from .utils import is_textual, normalize_value, render_fields, unique_keys
 
 MAX_HEADER_ROWS = 4
 MAX_LISTED_CELLS = 200
+PICTURE = "[picture"  # marker text of a Place-in-Cell picture ("[picture]" / "[picture: alt]" / "[picture linked: url]")
+WIDE_BAR = 0.6  # a single value merged over this share of the table width is a title / section bar
+
+
+def is_picture(v: Any) -> bool:
+    return isinstance(v, str) and v.startswith(PICTURE)
+
+
+def _header_text(v: Any) -> str:
+    return " ".join(str(v).split())
 
 
 def addr(r: int, c: int) -> str:
@@ -52,10 +69,12 @@ class TableInfo:
 
 
 class _Sheet:
-    def __init__(self, ws):
+    def __init__(self, ws, pictures: dict[tuple[int, int], InCellPicture] | None = None):
         self.name = ws.title
         self.orig: dict[tuple[int, int], Any] = {}
         self.raw: dict[tuple[int, int], Any] = {}  # every non-empty cell before cleaning
+        self.emph: set[tuple[int, int]] = set()  # bold or solid-filled cells: title bars / headers
+        self.pictures = pictures or {}
         for row in ws.iter_rows():
             for c in row:
                 if c.value is None or (isinstance(c.value, str) and not c.value.strip()):
@@ -64,6 +83,12 @@ class _Sheet:
                 v = normalize_value(c.value)
                 if v is not None:
                     self.orig[(c.row, c.column)] = v
+                    if c.font.b or c.fill.fill_type == "solid":
+                        self.emph.add((c.row, c.column))
+        for (r, c), pic in self.pictures.items():  # Place-in-Cell: the cell holds #VALUE! in the file, but it IS a picture
+            self.raw.setdefault((r, c), "#VALUE!")
+            self.orig[(r, c)] = (f"[picture linked: {pic.url[:80]}]" if pic.url and not pic.data
+                                 else f"[picture: {pic.alt[:80]}]" if pic.alt else "[picture]")
         self.anchor: dict[tuple[int, int], tuple[int, int]] = {}
         self.span: dict[tuple[int, int], tuple[int, int]] = {}
         for rng in ws.merged_cells.ranges:
@@ -115,6 +140,47 @@ def _blocks(sh: _Sheet) -> list[tuple[int, int, int, int]]:
     return out
 
 
+def _split_stacked(sh: _Sheet, block: tuple[int, int, int, int]) -> list[tuple[int, int, int, int]]:
+    """Tables stacked without a blank row: a title bar + a bold / filled header row starts a new table.
+
+    Needs style evidence (bold or fill) so that a plain section row followed by text rows is never mistaken for it."""
+    r0, r1, c0, c1 = block
+    width = c1 - c0 + 1
+
+    def own(r):
+        return [(c, sh.orig[(r, c)]) for c in range(c0, c1 + 1) if (r, c) in sh.orig]
+
+    def emphasised(r, cells):
+        return bool(cells) and sum((r, c) in sh.emph for c, _ in cells) >= 0.6 * len(cells)
+
+    def bar(r):
+        cells = own(r)
+        if len(cells) != 1 or not is_textual(cells[0][1]) or is_picture(cells[0][1]):
+            return False
+        c = cells[0][0]
+        a = sh.anchor.get((r, c))
+        span = sh.span[a][1] - c + 1 if a == (r, c) else 1
+        return span >= WIDE_BAR * width or (r, c) in sh.emph
+
+    def header_like(r):
+        cells = own(r)
+        return (len(cells) >= 2 and all(is_textual(v) and not is_picture(v) and len(v) <= 80 for _, v in cells)
+                and len({v for _, v in cells}) == len(cells) and emphasised(r, cells))
+
+    cuts = []
+    for r in range(r0 + 1, r1 - 1):
+        above_has_table = any(len(own(x)) >= 2 for x in range(r0, r))
+        below = own(r + 2)
+        if above_has_table and bar(r) and header_like(r + 1) and below and not emphasised(r + 2, below):
+            cuts.append(r)
+    out, start = [], r0
+    for r in cuts:
+        out.append((start, r - 1, c0, c1))
+        start = r
+    out.append((start, r1, c0, c1))
+    return out
+
+
 def _parse_block(sh: _Sheet, r0: int, r1: int, c0: int, c1: int, opts: dict,
                  captured: set) -> tuple[list[Element], TableInfo]:
     cols = range(c0, c1 + 1)
@@ -151,18 +217,32 @@ def _parse_block(sh: _Sheet, r0: int, r1: int, c0: int, c1: int, opts: dict,
     # ---- header detection (or user override)
     h0 = rows[i]
     first = row_vals(h0)
-    textual_share = sum(is_textual(v) for _, v in first) / max(len(first), 1)
+    textual_share = sum(is_textual(v) and not is_picture(v) for _, v in first) / max(len(first), 1)
     n_header = 0
+
+    def header_like_row(r):
+        """A row under a vertically merged header cell continues the header only when its own cells are header text:
+        a row of pictures, numbers or errors is data (the merged cell is just the label of that row)."""
+        cells = [v for c, v in row_vals(r) if (r, c) in sh.orig]
+        return not cells or all(is_textual(v) and not is_picture(v) for v in cells)
+
     if textual_share >= 0.6 and i + 1 < len(rows):
         n_header = 1
         for c in cols:  # merged header cells spanning several rows
             a = sh.anchor.get((h0, c))
             if a == (h0, c):
-                n_header = max(n_header, min(sh.span[a][0], r1) - h0 + 1)
+                end = min(sh.span[a][0], r1)
+                if end - h0 + 1 > MAX_HEADER_ROWS:
+                    continue  # a label merged over many rows groups the rows below it; it is not a header
+                reach = h0
+                while reach < end and header_like_row(reach + 1):
+                    reach += 1
+                n_header = max(n_header, reach - h0 + 1)
         while n_header < MAX_HEADER_ROWS and i + n_header < len(rows) - 1:  # sub-header rows under merged parents
             r = rows[i + n_header]
             cells = [(c, v) for c, v in row_vals(r) if (r, c) in sh.orig]
-            if cells and all(is_textual(v) and sh.h_merged(r - 1, c) for c, v in cells):
+            under_parent = sum(sh.h_merged(r - 1, c) for c, _ in cells)  # most cells sit under a merged parent; a plain column may join them
+            if cells and all(is_textual(v) and not is_picture(v) for _, v in cells) and under_parent >= max(1, 0.5 * len(cells)):
                 n_header += 1
             else:
                 break
@@ -181,7 +261,7 @@ def _parse_block(sh: _Sheet, r0: int, r1: int, c0: int, c1: int, opts: dict,
             v = sh.val(h, c)
             if v is not None and (not parts or parts[-1] != str(v)):
                 parts.append(str(v))
-        names.append(" > ".join(parts))
+        names.append(" > ".join(_header_text(p) for p in parts))
         fallbacks.append(f"Column {get_column_letter(c)}")
     headers = dict(zip(cols, unique_keys(names, fallbacks)))
     filled_count = {c: 0 for c in cols}
@@ -189,12 +269,19 @@ def _parse_block(sh: _Sheet, r0: int, r1: int, c0: int, c1: int, opts: dict,
     # ---- data rows
     table_title = preamble[-1] if preamble else None
     info.title = table_title
-    section_label = None
+    level1 = level2 = None
+    level1_wide = False  # section rows: a wide / bold / filled bar = level 1, a plain label under it = level 2
     for r in rows[i + n_header :]:
         if not any((r, c) in sh.orig for c in cols):
             continue  # nothing new on this row (only filled-down merged values)
         if single_value(r) and len(cols) >= 3:
-            section_label = str(row_vals(r)[0][1])
+            c_s, v_s = row_vals(r)[0]
+            a = sh.anchor.get((r, c_s))
+            wide = (a == (r, c_s) and sh.span[a][1] - c_s + 1 >= WIDE_BAR * len(cols)) or (r, c_s) in sh.emph
+            if wide or level1 is None or not level1_wide:  # plain rows after a plain row are siblings (old behaviour)
+                level1, level2, level1_wide = str(v_s), None, wide
+            else:
+                level2 = str(v_s)
             info.section_rows.append(r)
             capture_row(r)
             continue
@@ -202,7 +289,7 @@ def _parse_block(sh: _Sheet, r0: int, r1: int, c0: int, c1: int, opts: dict,
         fields = {headers[c]: v for c, v in vals}
         for c, _ in vals:
             filled_count[c] += 1
-        section = [sh.name] + [s for s in (table_title, section_label) if s]
+        section = [sh.name] + [s for s in (table_title, level1, level2) if s]
         loc = {"sheet": sh.name, "row": r, "range": f"{addr(r, c0)}:{addr(r, c1)}"}
         title = next((v for _, v in vals if is_textual(v)), vals[0][1])  # first text value, not a serial number
         elements.append(Element("record", render_fields(fields), section, loc, fields, str(title)[:150]))
@@ -226,6 +313,8 @@ def _sheet_report(sh: _Sheet, tables: list[TableInfo], captured: set, skipped: b
         "max_row": sh.max_row, "max_col": sh.max_col,
         "merged_ranges": len(sh.span),
         "images": sh.images,
+        "in_cell_pictures": sum(1 for p in sh.pictures.values() if p.data),
+        "pictures_unresolved": [{"cell": addr(r, c), "reason": p.problem} for (r, c), p in sorted(sh.pictures.items()) if not p.data][:MAX_LISTED_CELLS],
         "tables": [asdict(t) for t in tables],
         "records": sum(t.records for t in tables),
         "coverage": {
@@ -239,15 +328,15 @@ def _sheet_report(sh: _Sheet, tables: list[TableInfo], captured: set, skipped: b
     }
 
 
-def analyze_sheet(ws, options: dict | None = None) -> tuple[_Sheet, list[Element], dict]:
+def analyze_sheet(ws, options: dict | None = None, pictures: dict | None = None) -> tuple[_Sheet, list[Element], dict]:
     options = options or {}
-    sh = _Sheet(ws)
+    sh = _Sheet(ws, pictures)
     captured: set = set()
     elements: list[Element] = []
     tables: list[TableInfo] = []
     skipped = bool((options.get("sheets") or {}).get(ws.title, {}).get("skip"))
     if not skipped:
-        for block in _blocks(sh):
+        for block in (part for b in _blocks(sh) for part in _split_stacked(sh, b)):
             r0, r1, c0, c1 = block
             key = f"{ws.title}!{addr(r0, c0)}:{addr(r1, c1)}"
             els, info = _parse_block(sh, *block, (options.get("tables") or {}).get(key, {}), captured)
@@ -259,6 +348,7 @@ def analyze_sheet(ws, options: dict | None = None) -> tuple[_Sheet, list[Element
 def parse_excel(path: str | Path, options: dict | None = None) -> ParsedDocument:
     path = Path(path)
     wb = load_workbook(path, data_only=True)
+    in_cell = read_incell_pictures(path)  # Place-in-Cell pictures: openpyxl shows them as #VALUE!
     elements: list[Element] = []
     stats: dict[str, Any] = {"sheets": {}, "skipped_sheets": []}
     warnings: list[str] = []
@@ -267,11 +357,13 @@ def parse_excel(path: str | Path, options: dict | None = None) -> ParsedDocument
         if ws.sheet_state != "visible":
             stats["skipped_sheets"].append(ws.title)
             continue
-        _, els, report = analyze_sheet(ws, options)
+        sh, els, report = analyze_sheet(ws, options, in_cell.get(ws.title))
         elements.extend(els)
         stats["sheets"][ws.title] = report
         if not report["skipped"]:
-            images.extend(_sheet_pictures(ws, els, report))
+            images.extend(_sheet_pictures(ws, els, report, sh))
+            for p in report["pictures_unresolved"]:
+                warnings.append(f"Sheet '{ws.title}' {p['cell']}: picture not readable ({p['reason']})")
         cov = report["coverage"]
         if not report["skipped"] and cov["percent"] < 100:
             warnings.append(f"Sheet '{ws.title}': {cov['nonempty_cells'] - cov['captured_cells']} cell(s) not captured "
@@ -284,11 +376,42 @@ def parse_excel(path: str | Path, options: dict | None = None) -> ParsedDocument
     return ParsedDocument(path.name, path.suffix.lstrip(".").lower(), elements, stats, warnings, images)
 
 
-def _sheet_pictures(ws, elements: list[Element], report: dict) -> list[RawImage]:
-    """Pictures placed on the sheet, each tied to the cell it is anchored to: the row's record
-    (e.g. the vehicle) and the column heading (e.g. "Assembled Vehicle Image") become its context."""
+def _picture_context(ws_title: str, sh: _Sheet, report: dict, rows: dict, r: int | None, c: int | None, alt: str = "") -> str:
+    """Where a picture sits, in the words of the sheet: box title, column heading, row label, the row's record, alt text.
+    These labelled lines are sent to the vision model together with the picture."""
+    lines = [f"Sheet: {ws_title}"]
+    if r is not None and c is not None:
+        for t in report["tables"]:
+            r0, r1, c0, c1 = _bounds(t["range"])
+            if r0 <= r <= r1 and c0 <= c <= c1:
+                if t.get("title"):
+                    lines.append(f"Box title: {t['title']}")
+                column = next((col["name"] for col in t["columns"] if col["col"] == get_column_letter(c)), "")
+                if column:
+                    lines.append(f"Column: {column}")
+                label = sh.val(r, c0) if c != c0 else None  # first column of the box = the row's label
+                if label is not None and not is_picture(label):
+                    lines.append(f"Row label: {label}")
+                break
+    if alt:
+        lines.append(f"Alt text: {alt}")
+    rec = rows.get(r)
+    if rec is not None:
+        lines.append("Same row:\n" + rec.text)
+    return "\n".join(lines)[:1000]
+
+
+def _sheet_pictures(ws, elements: list[Element], report: dict, sh: _Sheet | None = None) -> list[RawImage]:
+    """Pictures of the sheet, each tied to the cell it sits in: floating ones through their anchor cell, Place-in-Cell
+    ones through the cell itself."""
     rows = {e.location.get("row"): e for e in elements if e.kind == "record"}
+    sh = sh or _Sheet(ws)
     out = []
+    for (r, c), pic in sorted(sh.pictures.items()):
+        if not pic.data:
+            continue
+        loc: dict[str, Any] = {"sheet": ws.title, "row": r, "cell": addr(r, c), "placement": "in_cell"}
+        out.append(RawImage(pic.data, pic.ext, loc, _picture_context(ws.title, sh, report, rows, r, c, pic.alt)))
     for img in getattr(ws, "_images", []):
         try:
             data = img._data()
@@ -296,21 +419,10 @@ def _sheet_pictures(ws, elements: list[Element], report: dict) -> list[RawImage]
             continue
         anchor = getattr(getattr(img, "anchor", None), "_from", None)
         r, c = (anchor.row + 1, anchor.col + 1) if anchor is not None else (None, None)
-        loc: dict[str, Any] = {"sheet": ws.title}
-        column = ""
+        loc = {"sheet": ws.title, "placement": "floating"}
         if r is not None:
             loc.update(row=r, cell=addr(r, c))
-            letter = get_column_letter(c)
-            for t in report["tables"]:
-                b = _bounds(t["range"])
-                if b[0] <= r <= b[1] and b[2] <= c <= b[3]:
-                    column = next((col["name"] for col in t["columns"] if col["col"] == letter), "")
-                    break
-        rec = rows.get(r)
-        lines = [f"Sheet: {ws.title}"] + ([f"Column: {column}"] if column else [])
-        if rec is not None:
-            lines.append(rec.text)
-        out.append(RawImage(data, (getattr(img, "format", None) or "png").lower(), loc, "\n".join(lines)[:800]))
+        out.append(RawImage(data, (getattr(img, "format", None) or "png").lower(), loc, _picture_context(ws.title, sh, report, rows, r, c)))
     return out
 
 

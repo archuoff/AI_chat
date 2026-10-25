@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     semantic_split: bool = True  # embed neighbour sentences to find topic changes (false = size splitter only)
     semantic_percentile: int = 25  # a break needs a similarity in the lowest N % of the section's own values
     expand_section_max_chars: int = 6000  # when one chunk of a section matches, return the whole section up to this size
+    clean_noise: bool = True  # deterministic noise removal for PDF / Word / PowerPoint (page numbers, repeated headers, logos ...)
     pdf_engine: Literal["auto", "docling", "pypdf"] = "auto"  # auto = Docling when installed, else pypdf (with a warning)
 
     # ---------------- upload suggestions (similar documents; code only, no LLM)

@@ -8,6 +8,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter, range_boundaries
 
 from .excel import analyze_sheet
+from .incell import read_incell_pictures
 
 MAX_CELL_CHARS = 220
 MAX_RECORDS_PER_TABLE = 300
@@ -29,7 +30,7 @@ def build_excel_preview(path: Path, options: dict, sheet: str | None, max_rows: 
         if ws is None:
             raise KeyError(f"sheet '{sheet}' not found")
 
-        sh, elements, report = analyze_sheet(ws, options)
+        sh, elements, report = analyze_sheet(ws, options, read_incell_pictures(path).get(ws.title))
 
         # per-cell status from the parser's decisions
         status: dict[tuple[int, int], str] = {}

@@ -11,8 +11,13 @@
 - Plans written: agentic ingestion design, Angular migration, retrieval review (Phase 1), Qdrant server migration.
 
 ## To do next: bring pictures and Docling into the live pipeline (before the experimental pipeline)
-1. **Excel Place-in-Cell pictures in `app/ingestion/excel.py`**: port the reader from the experiment; count pictures
-   in coverage (no false "All data captured"); picture row is data, not a header; transposed table gives one card per column.
+1. **DONE (code + tests; run on the real Radar file on the office PC):** Excel Place-in-Cell pictures in `excel.py` (`incell.py`):
+   pictures count in coverage, shown as `[picture: alt]`, a picture row is data not a header, each picture carries box title /
+   column / row label / alt text for the VLM. Heading fixes: stacked tables split at bold title bars, nested section rows
+   (level 1 / level 2), tall merged labels are not headers, multi-level headers with a plain column, header line breaks cleaned.
+   Still open: one card per vehicle for comparison (transposed) tables.
+   Also DONE: `cleaning.py`, deterministic noise removal for PDF / Word / PowerPoint (page numbers, repeated headers and footers,
+   boilerplate, TOC dot leaders, logo / icon / divider / blank / duplicate pictures), reported in `stats["cleaning"]`.
 2. **VLM descriptions with neighbour context**: box title, column header, row label, caption, same-row text; one call per picture.
 3. **Sheet preview draws pictures at their cell** (backend preview JSON + `SheetGrid` / `SheetPreview`).
 4. **Image fetching in retrieval**: picture chunks linked to the record chunks of the same sheet / row, both ways.

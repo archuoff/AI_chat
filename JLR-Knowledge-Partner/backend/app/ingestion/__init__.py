@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from ..config import get_settings
+from .cleaning import clean_document
 from .documents import parse_csv, parse_docx, parse_pdf, parse_pptx, parse_text
 from .excel import parse_excel
 from .models import Element, ParsedDocument
@@ -25,7 +27,8 @@ def parse_file(path: str | Path, options: dict | None = None) -> ParsedDocument:
         raise ValueError(f"Unsupported file type '{path.suffix}'. Supported: {', '.join(SUPPORTED_EXTENSIONS)}")
     if parser is parse_excel:
         return parse_excel(path, options)
-    return parser(path)
+    doc = parser(path)
+    return clean_document(doc) if get_settings().clean_noise else doc
 
 
 __all__ = ["Element", "ParsedDocument", "parse_file", "SUPPORTED_EXTENSIONS"]
