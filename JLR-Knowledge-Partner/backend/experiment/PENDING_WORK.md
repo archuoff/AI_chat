@@ -113,7 +113,10 @@ Write one test file per theme and assert exactly:
 **Status (done):** both known gaps are fixed and their tests are strict (no expected failures left).
 1. Merged areas now read their border from the master cell (`Sheeter.border`). Before, covered cells had no style, so merged blocks looked borderless and no frame was found. Result: the framed overview is a `frame` with three children.
 2. Blocks are split at every column that is blank for their rows (`find_blocks`). The old rule merged column groups that overlapped in rows, which joined side-by-side tables. Trade-off: a table with an empty spacer column inside it is now split in two. Accepted because "blank column = break" is the same rule used for rows; revisit if a real file shows it.
-Open weak spots (not yet fixed, no test yet): tables with only two data rows, borderless fill-only tables, pictures straddling two regions.
+3. Spacer columns: a blank column joins two parts only when a merged area runs across it (one title or group label = one table). Otherwise two parts are two tables, on purpose (pinned by `test_untitled_spacer_is_two_tables_by_design`): identical headers side by side look like one table with a spacer.
+4. Floating pictures no longer decide where a box ends (one picture can bridge two tables). They count as content when a box is checked, a picture no box covers becomes a box of its own, and a picture overlapping two regions is flagged `straddles:<ids>` with both regions sent for review.
+5. The weak spots are now covered by tests: two-data-row tables, borderless fill-only tables, a picture covering two boxes, a picture alone in a free area.
+Still open: none of these rules has been checked against a real file yet; revisit after the owner's `inspect` output.
 Where to adjust (all in `regions.py` unless noted), with the current thresholds:
 - Title bar split: `_bar` score >= 5 (width span >= 80 % +2, dark / mid fill +2, bold or size >= 13 +1, next row header-like +2, next row data-like -1).
 - Frame: `_split_frame` needs outer border >= 80 % of the perimeter and dividers on >= 80 % of the box length; if vertical OR horizontal dividers cover >= 60 % of the boundaries it is a ruled list / grid table, not a frame.
