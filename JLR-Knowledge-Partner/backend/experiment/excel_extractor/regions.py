@@ -494,9 +494,16 @@ class Finder:
         if id_rows >= 3 or (id_rows >= 2 and id_rows >= 0.6 * max(len(body), 1)):
             scores["requirement_list"] = 0.82
             ev.append(f"{id_rows} rows carry ID-like tokens")
+        # a strip of pictures, each with a caption row (or a caption-only label row) above or below
         if (pics or pic_items) and len(texts) <= 2 * (len(pics) + len(pic_items)) + 2 and not header_rows:
             scores["picture_strip"] = 0.75
             ev.append(f"{len(pics) + len(pic_items)} picture(s) with {len(texts)} text cell(s)")
+        elif pic_items and not header_rows and n_value_cols <= 1:
+            pic_rows = {i.r for i in pic_items}
+            caption_rows = [r for r in body if r not in pic_rows and rows[r] and all(i.kind == "text" for i in rows[r])]
+            if len(caption_rows) >= len(pic_rows) - 1:
+                scores["picture_strip"] = 0.72
+                ev.append(f"{len(pic_rows)} picture row(s) with {len(caption_rows)} caption row(s)")
         if len(all_items) == 1 and all_items[0].kind == "text" and not pics:
             scores["title"] = 0.9
         elif n_cols <= 2 and texts and not header_rows and len(texts) >= 1 and len(texts) >= 0.8 * max(len(all_items), 1) and "key_value" not in scores:
