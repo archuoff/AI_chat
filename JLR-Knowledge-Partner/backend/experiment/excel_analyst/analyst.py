@@ -111,6 +111,25 @@ def check_proposal(item: WorkItem, proposal: LayoutProposal) -> dict:
             'unlinked_pictures': sorted(set(pictures) - linked)}
 
 
+def _why_unparsed(raw, error) -> str:
+    """Name the finish reason and the schema fields that failed (paths and kinds only, never values)."""
+    meta = getattr(raw, 'response_metadata', {}) or {}
+    parts = [f"finish_reason={meta.get('finish_reason')}", f"tool_calls={len(getattr(raw, 'tool_calls', None) or [])}"]
+    if (getattr(raw, 'additional_kwargs', {}) or {}).get('refusal'):
+        parts.append('model refused')
+    seen = error
+    while seen is not None and not callable(getattr(seen, 'errors', None)):
+        seen = seen.__cause__ or seen.__context__
+    if seen is not None:
+        try:
+            parts.append('invalid fields: ' + '; '.join(f"{'.'.join(str(x) for x in e['loc'])} ({e['type']})" for e in seen.errors()[:8]))
+        except Exception:
+            pass
+    elif error is not None:
+        parts.append(f'parser error {type(error).__name__}')
+    return ', '.join(parts)
+
+
 def _picture_range(picture: dict) -> str:
     from .evidence import rect
     return rect(picture['anchor'])
@@ -138,7 +157,7 @@ class AzureAnalyst:
         if getattr(raw, 'response_metadata', {}).get('finish_reason') == 'length':
             raise ValueError('Azure response was truncated; reduce the scope or input size')
         if result.get('parsing_error') or result.get('parsed') is None:
-            raise ValueError('Azure returned no valid structured layout proposal (refusal or schema mismatch)')
+            raise ValueError('Azure returned no valid structured layout proposal: ' + _why_unparsed(raw, result.get('parsing_error')))
         proposal = LayoutProposal.model_validate(result['parsed'])
         usage = getattr(raw, 'usage_metadata', None) or {}
         return proposal, {key: int(usage.get(key, 0) or 0) for key in ('input_tokens', 'output_tokens')}
