@@ -31,7 +31,7 @@ def test_extract_writes_all_outputs(fx, tmp_path):
 def test_compare_runs_with_app_on_path(fx):
     r = run("compare", str(fx["radar"]))
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "in-cell pictures the old reader ignored" in r.stdout
+    assert "0 ignored cell(s)" in r.stdout and "13 picture(s)" in r.stdout  # the live reader now reads Place-in-Cell pictures too
 
 
 def test_errors_are_one_readable_line(tmp_path):
