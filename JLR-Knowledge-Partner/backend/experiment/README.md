@@ -1,5 +1,9 @@
 # Excel extractor (experiment)
 
+The first Azure layout-analysis stage is now available separately in
+[`excel_analyst/README.md`](excel_analyst/README.md). It reads the extraction output and writes
+reviewable proposals; it does not modify the extractor, run a second LLM validator, or create chunks.
+
 Reads an Excel workbook and turns it into an exact **sheet model** plus **region candidates** (tables, side-ways tables, key-value
 cards, picture strips, requirement lists, framed boxes). It makes no LLM calls and changes nothing in `app/`. The later LLM step only
 confirms or corrects the regions this folder proposes.

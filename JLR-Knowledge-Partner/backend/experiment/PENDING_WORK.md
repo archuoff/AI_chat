@@ -1,5 +1,15 @@
 # Excel extractor experiment: pending work (hand-off plan)
 
+## Update: first Azure analyst stage
+
+The user authorized building the layout analyst while real-workbook extraction is reviewed.
+`experiment/excel_analyst/` now reads exported evidence, prepares bounded per-region inputs,
+uses the existing Azure configuration for structured proposals, and checks source references.
+See its README for the offline and live commands. It does not change `app/`, extractor logic,
+source cell values, or the existing extraction output. A second LLM validator, VLM descriptions,
+chunk assembly, integration, and live Azure/real-workbook validation remain outstanding.
+The historical handoff below describes the earlier extractor-only scope.
+
 Read this file first. It is written so that a smaller model can finish the job step by step without the earlier conversation.
 
 ## 0. Goal and rules
