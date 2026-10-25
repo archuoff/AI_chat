@@ -88,6 +88,11 @@ class KGStore:
                     self.client.create_payload_index(s.chunks_collection, "superseded", models.PayloadSchemaType.BOOL)
                 except Exception:  # noqa: BLE001 - index already there
                     pass
+            if s.qdrant_url:  # section_key: hierarchical chunks (added later than the first collections)
+                try:
+                    self.client.create_payload_index(s.chunks_collection, "section_key", models.PayloadSchemaType.KEYWORD)
+                except Exception:  # noqa: BLE001 - index already there
+                    pass
             if not self.client.collection_exists(s.documents_collection):
                 self.client.create_collection(s.documents_collection, vectors_config={})
 

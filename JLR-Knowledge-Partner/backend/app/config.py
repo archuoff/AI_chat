@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     upload_dir: str = str(BASE_DIR / "data" / "uploads")
     chunk_size: int = 1200
     chunk_overlap: int = 150
+    # Hierarchical chunking: text under one heading = a section; short = one chunk, long = split where the meaning changes
+    chunking: Literal["recursive", "hierarchical"] = "hierarchical"
+    hierarchical_file_types: str = "pdf"  # comma separated; only files whose parser filled the heading path are affected
+    section_max_chars: int = 2000  # a section up to this size stays one chunk
+    chunk_min_chars: int = 300  # a semantic piece is not cut shorter than this
+    semantic_split: bool = True  # embed neighbour sentences to find topic changes (false = size splitter only)
+    semantic_percentile: int = 25  # a break needs a similarity in the lowest N % of the section's own values
+    expand_section_max_chars: int = 6000  # when one chunk of a section matches, return the whole section up to this size
     pdf_engine: Literal["auto", "docling", "pypdf"] = "auto"  # auto = Docling when installed, else pypdf (with a warning)
 
     # ---------------- upload suggestions (similar documents; code only, no LLM)

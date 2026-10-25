@@ -88,7 +88,8 @@ def parse(state: IngestState) -> IngestState:
 
 def chunk(state: IngestState) -> IngestState:
     s = get_settings()
-    return {"chunks": build_chunks(state["doc_id"], state["parsed"], s.chunk_size, s.chunk_overlap)}
+    embed = get_store().embedder.embed_documents if s.semantic_split else None  # topic-change detection in long sections
+    return {"chunks": build_chunks(state["doc_id"], state["parsed"], s.chunk_size, s.chunk_overlap, embed)}
 
 
 # registry-only fields that must survive re-processing a document

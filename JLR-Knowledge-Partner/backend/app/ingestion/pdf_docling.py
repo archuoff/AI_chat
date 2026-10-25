@@ -332,8 +332,8 @@ def to_parsed_document(export: dict[str, Any], *, images_dir: str | Path | None 
             return
         pages = sorted({b["page"] for b in run if b.get("page")})
         text = "\n".join(b["text"] for b in run)
-        elements.append(Element("text", text, [s for s in run[0]["heading_path"]], {"page": pages[0] if pages else None,
-                                "pages": pages, "blocks": [b["id"] for b in run]}))
+        loc = {"page": pages[0], "page_end": pages[-1]} if pages else {}  # plain numbers: they are used as search filters
+        elements.append(Element("text", text, [s for s in run[0]["heading_path"]], loc))
         run.clear()
 
     tables = {t["id"]: t for t in export["tables"]}

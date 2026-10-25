@@ -109,6 +109,13 @@ def _score(question: str, plan: dict, cands: list[dict]) -> None:
 def _expand(unit: dict) -> None:
     """Fetch the missing parts of a split row / neighbouring parts of a split text block."""
     first = unit["chunks"][0]
+    if first.get("section_key") and (first.get("section_chars") or 0) <= get_settings().expand_section_max_chars:
+        # hierarchical chunk: one piece of a short enough section matched -> bring the whole section (small to big)
+        have = {c["id"] for c in unit["chunks"]}
+        extra = [c for c in get_store().scroll_chunks({"doc_id": first["doc_id"], "section_key": first["section_key"]}, limit=40)
+                 if c["id"] not in have]
+        unit["chunks"] = sorted(unit["chunks"] + extra, key=lambda c: c["chunk_index"])
+        return
     parts = first.get("parts")
     if not parts or len(unit["chunks"]) >= parts:
         return
