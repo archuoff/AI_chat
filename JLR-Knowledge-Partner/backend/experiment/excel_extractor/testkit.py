@@ -369,3 +369,85 @@ def merged_only_sheet(path: Path) -> Path:
     ws.merge_range("B2:D2", "", b.body())
     ws.merge_range("B4:B6", "", b.body())
     return b.close()
+
+
+def two_data_rows(path: Path) -> Path:
+    b = Book(path)
+    ws = b.wb.add_worksheet("Two")
+    for c, h in zip("BCD", ["Part", "Weight", "Material"]):
+        ws.write(f"{c}2", h, b.dark())
+    for r, row in enumerate([["Bumper", 3.1, "PP"], ["Grille", 2.2, "PA"]], start=3):
+        for c, v in zip("BCD", row):
+            ws.write(f"{c}{r}", v, b.body())
+    return b.close()
+
+
+def borderless_fill(path: Path) -> Path:
+    """Header is a dark fill, body has no borders and no fill: the only signal is the header colour."""
+    b = Book(path)
+    ws = b.wb.add_worksheet("Fill only")
+    plain = b.wb.add_format({"text_wrap": True})
+    for c, h in zip("BCD", ["Vehicle", "Range", "Unit"]):
+        ws.write(f"{c}2", h, b.dark())
+    for r, row in enumerate([["Golf", 5.5, "m"], ["Polo", 5.0, "m"], ["Up", 4.8, "m"], ["Lupo", 4.5, "m"]], start=3):
+        for c, v in zip("BCD", row):
+            ws.write(f"{c}{r}", v, plain)
+    return b.close()
+
+
+def spacer_bridged(path: Path) -> Path:
+    """One table with an empty spacer column inside it; a merged title bar runs across the spacer, so it is ONE table."""
+    b = Book(path)
+    ws = b.wb.add_worksheet("Spacer")
+    ws.merge_range("B2:F2", "Spec with spacer", b.title())
+    for c, h in zip("BCEF", ["Part", "Weight", "Material", "Note"]):
+        ws.write(f"{c}3", h, b.dark())
+    for r, row in enumerate([["Bumper", 3.1, "PP", "a"], ["Grille", 2.2, "PA", "b"], ["Frunk", 4.0, "PP", "c"]], start=4):
+        for c, v in zip("BCEF", row):
+            ws.write(f"{c}{r}", v, b.body())
+    return b.close()
+
+
+def straddling_picture(path: Path) -> Path:
+    """A picture that starts inside a card and runs down into the table under it."""
+    b = Book(path)
+    ws = b.wb.add_worksheet("Straddle")
+    for r in range(2, 6):
+        ws.write(f"B{r}", f"Spec {r}", b.body())
+        ws.write(f"C{r}", r * 10, b.body())
+    for c, h in zip("BCD", ["Vehicle", "Max range", "Unit"]):
+        ws.write(f"{c}8", h, b.dark())
+    for r, row in enumerate([["Golf", 5.5, "m"], ["Polo", 5.0, "m"], ["Up", 4.8, "m"]], start=9):
+        for c, v in zip("BCD", row):
+            ws.write(f"{c}{r}", v, b.body())
+    ws.insert_image("E4", write_png(b.img_dir, "straddle.png", (200, 120, 40)), {"x_scale": 1.0, "y_scale": 2.2})
+    return b.close()
+
+
+def straddle_overlap(path: Path) -> Path:
+    """A picture laid over the bottom of a card and the top of the table under it: it covers both boxes."""
+    b = Book(path)
+    ws = b.wb.add_worksheet("Overlap")
+    for r in range(2, 6):
+        ws.write(f"B{r}", f"Spec {r}", b.body())
+        ws.write(f"C{r}", r * 10, b.body())
+    for c, h in zip("BCD", ["Vehicle", "Max range", "Unit"]):
+        ws.write(f"{c}7", h, b.dark())
+    for r, row in enumerate([["Golf", 5.5, "m"], ["Polo", 5.0, "m"]], start=8):
+        for c, v in zip("BCD", row):
+            ws.write(f"{c}{r}", v, b.body())
+    ws.insert_image("B5", write_png(b.img_dir, "overlap.png", (60, 60, 160)), {"x_scale": 1.0, "y_scale": 1.6})
+    return b.close()
+
+
+def spacer_untitled(path: Path) -> Path:
+    """Two tables with the same headers and one blank column between them, and no title across the gap.
+    Kept as two tables on purpose: identical headers next to each other (front / rear) look exactly like one split table."""
+    b = Book(path)
+    ws = b.wb.add_worksheet("Untitled")
+    for c, h in zip("BCEF", ["Part", "Weight", "Part", "Weight"]):
+        ws.write(f"{c}2", h, b.dark())
+    for r, row in enumerate([["Front bumper", 3.1, "Rear bumper", 2.9], ["Grille", 2.2, "Tailgate", 4.1]], start=3):
+        for c, v in zip("BCEF", row):
+            ws.write(f"{c}{r}", v, b.body())
+    return b.close()

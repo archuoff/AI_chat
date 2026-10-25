@@ -40,3 +40,42 @@ def test_key_value_cards(ex_cache):
 def test_normal_table_has_rows_orientation(ex_cache):
     sh = sheet(ex_cache("multi"))
     assert region(sh, "table").orientation == "rows"
+
+
+def test_two_data_rows_is_still_a_table(ex_cache):
+    g = region(sheet(ex_cache("two_rows")), "table")
+    assert g.data_rows == [3, 4] and not g.needs_llm
+
+
+def test_borderless_fill_only_table(ex_cache):
+    """Only the dark header fill tells the header apart; the body has no lines at all."""
+    g = region(sheet(ex_cache("fill_only")), "table")
+    assert g.header_rows == [2] and g.data_rows == [3, 4, 5, 6] and g.confidence >= 0.8
+
+
+def test_spacer_column_inside_a_titled_table_stays_one_table(ex_cache):
+    """A merged title runs across the empty spacer column E: one table, not two."""
+    sh = sheet(ex_cache("spacer"))
+    tables = [g for g in sh.regions if g.kind == "table"]
+    assert [g.range for g in tables] == ["B2:F6"], [(g.kind, g.range) for g in sh.regions]
+    assert tables[0].data_rows == [4, 5, 6]
+
+
+def test_picture_covering_two_boxes_is_flagged_and_reviewed(ex_cache):
+    sh = sheet(ex_cache("overlap"))
+    pics = [p for p in sh.pictures if p.kind == "floating"]
+    assert pics and any(f.startswith("straddles:") for f in pics[0].flags), pics[0].flags
+    flagged = [g for g in sh.regions if g.id in pics[0].flags[0].split(":")[1].split(",")]
+    assert flagged and all(g.needs_llm for g in flagged)
+
+
+def test_straddling_picture_alone_is_its_own_box(ex_cache):
+    sh = sheet(ex_cache("straddle"))
+    pic = next(p for p in sh.pictures if p.kind == "floating")
+    assert pic.region is not None
+    assert not any(f.startswith("straddles:") for f in pic.flags)
+
+
+def test_untitled_spacer_is_two_tables_by_design(ex_cache):
+    sh = sheet(ex_cache("untitled"))
+    assert [g.range for g in sh.regions if g.kind == "table"] == ["B2:C4", "E2:F4"]

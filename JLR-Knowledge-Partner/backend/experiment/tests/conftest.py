@@ -29,6 +29,12 @@ def fx(tmp_path_factory):
         "big": testkit.big_sheet(d / "big.xlsx", rows=20000),
         "empty": testkit.empty_sheet(d / "empty.xlsx"),
         "merged_only": testkit.merged_only_sheet(d / "merged.xlsx"),
+        "two_rows": testkit.two_data_rows(d / "two_rows.xlsx"),
+        "fill_only": testkit.borderless_fill(d / "fill_only.xlsx"),
+        "spacer": testkit.spacer_bridged(d / "spacer.xlsx"),
+        "straddle": testkit.straddling_picture(d / "straddle.xlsx"),
+        "overlap": testkit.straddle_overlap(d / "overlap.xlsx"),
+        "untitled": testkit.spacer_untitled(d / "untitled.xlsx"),
     }
 
 

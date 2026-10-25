@@ -85,7 +85,14 @@ class Sheeter:
                 for r in range(m.r0, m.r1 + 1):
                     for c in range(m.c0, m.c1 + 1):
                         self.content.add((r, c))
-        for obj in [*sh.pictures, *[s for s in sh.shapes if self._counts(s)]]:
+        # floating pictures do not decide where a block ends (one picture can bridge two tables), but they do count as content
+        # when a block is checked (a picture-only box is still a box); they are attached to regions afterwards
+        self.pic_cells: set[tuple[int, int]] = set()
+        for p in sh.pictures:
+            a = p.anchor
+            if a.kind != "cell" and (a.r1 - a.r0 + 1) * (a.c1 - a.c0 + 1) <= MAX_OBJECT_CELLS:
+                self.pic_cells |= {(r, c) for r in range(a.r0, a.r1 + 1) for c in range(a.c0, a.c1 + 1)}
+        for obj in [s for s in sh.shapes if self._counts(s)]:
             a = obj.anchor
             if a.kind == "cell":
                 continue
@@ -100,6 +107,7 @@ class Sheeter:
         for p in sh.pictures:  # in-cell pictures sit on a cell that already has content
             if p.anchor.kind == "cell":
                 self.obj_at[(p.anchor.r0, p.anchor.c0)].append(p.id)
+
 
     @staticmethod
     def _counts(s) -> bool:
@@ -161,7 +169,7 @@ class Sheeter:
 
 
 # ------------------------------------------------------------------ blocks
-def find_blocks(cells: set[tuple[int, int]]) -> list[Bounds]:
+def find_blocks(cells: set[tuple[int, int]], bridges: set[tuple[int, int]] | None = None) -> list[Bounds]:
     """Rectangles separated by blank rows, then blank columns. Column groups that cover (nearly) the same rows are one block with
     spacer columns; groups on different rows are separate side-by-side blocks."""
     by_row: dict[int, list[int]] = defaultdict(list)
@@ -171,8 +179,15 @@ def find_blocks(cells: set[tuple[int, int]]) -> list[Bounds]:
     for r0, r1 in _runs(list(by_row)):
         rows = range(r0, r1 + 1)
         cols = _runs([c for r in rows for c in by_row.get(r, [])])
-        # a column that is blank for every row of this band is a break: two tables that share rows are split by their gap
+        # a column that is blank for every row of this band is a break: two tables that share rows are split by their gap,
+        # unless a merged area (one title or one group label) runs across the gap: then it is one table with a spacer column
+        groups: list[list] = []  # [c0, c1]
         for c0, c1 in cols:
+            if groups and c0 == groups[-1][1] + 2 and any((r, groups[-1][1] + 1) in (bridges or set()) for r in rows):
+                groups[-1][1] = c1
+            else:
+                groups.append([c0, c1])
+        for c0, c1 in groups:
             rs = {r for r in rows if any(c0 <= c <= c1 for c in by_row.get(r, []))}
             blocks.append((min(rs), c0, max(rs), c1))
     return sorted(blocks)
@@ -189,12 +204,22 @@ class Finder:
     def run(self) -> list[Region]:
         S = self.S
         cells = set(S.content) | S.frame_cells()
-        content_only = [b for b in find_blocks(cells)]
+        # gap columns that a merged area runs across (see find_blocks)
+        bridges = {(r, c) for m in self.d.model.merges for r in range(m.r0, m.r1 + 1) for c in range(m.c0 + 1, m.c1) if m.c1 > m.c0}
+        content_only = [b for b in find_blocks(cells, bridges)]
         for b in content_only:
             b = self._trim(b)
             if b is None:
                 continue
             self._analyse(b, None, 0)
+        # a floating picture that no box covers is a box of its own (for example an isolated picture under a table)
+        for p in S.sh.pictures:
+            a = p.anchor
+            if a.kind == "cell" or any(self._overlap(a, g) for g in self.regions if not g.children):
+                continue
+            b = self._trim((a.r0, a.c0, a.r1, a.c1))
+            if b is not None:
+                self._analyse(b, None, 0)
         self._attach_objects()
         self.S.sh.warnings.extend(self.S.warnings)
         return self.regions
@@ -211,7 +236,7 @@ class Finder:
     def _trim(self, b: Bounds) -> Bounds | None:
         """Shrink to the rows / columns that really hold content (frames only extend a block, never decide its bounds alone)."""
         r0, c0, r1, c1 = b
-        pts = [(r, c) for (r, c) in self.S.content if r0 <= r <= r1 and c0 <= c <= c1]
+        pts = [(r, c) for (r, c) in (self.S.content | self.S.pic_cells) if r0 <= r <= r1 and c0 <= c <= c1]
         if not pts:
             return None
         fr = [(r, c) for (r, c) in self.d.frames if r0 <= r <= r1 and c0 <= c <= c1]
@@ -221,7 +246,7 @@ class Finder:
 
     def _has_content(self, b: Bounds) -> bool:
         r0, c0, r1, c1 = b
-        return any(r0 <= r <= r1 and c0 <= c <= c1 for (r, c) in self.S.content)
+        return any(r0 <= r <= r1 and c0 <= c <= c1 for (r, c) in (self.S.content | self.S.pic_cells))
 
     # --- frames: bordered boxes divided into cells
     def _outer_border(self, b: Bounds) -> float:
@@ -546,16 +571,31 @@ class Finder:
                 best = reg
         return best
 
+    def _overlap(self, a, reg: Region) -> int:
+        r0, c0, r1, c1 = max(a.r0, reg.r0), max(a.c0, reg.c0), min(a.r1, reg.r1), min(a.c1, reg.c1)
+        return (r1 - r0 + 1) * (c1 - c0 + 1) if r0 <= r1 and c0 <= c1 else 0
+
     def _attach_objects(self) -> None:
         S, sh = self.S, self.S.sh
+        leaves = [g for g in self.regions if not g.children]
         for obj in [*sh.pictures, *sh.shapes]:
             a = obj.anchor
-            r, c = (a.r0 + a.r1) // 2, (a.c0 + a.c1) // 2
-            reg = self._deepest(a.r0, a.c0) or self._deepest(r, c)
-            if reg is None or (obj.__class__.__name__ == "Shape" and not S._counts(obj)):
+            is_pic = obj.__class__.__name__ == "Picture"
+            if is_pic and a.kind == "cell":  # in-cell pictures sit in their own cell: the deepest region there
+                reg = self._deepest(a.r0, a.c0)
+            else:
+                scored = sorted(((self._overlap(a, g), g) for g in leaves), key=lambda x: -x[0])
+                scored = [(n, g) for n, g in scored if n > 0]
+                reg = scored[0][1] if scored else None
+                if is_pic and len(scored) > 1 and scored[1][0] * 4 >= scored[0][0]:  # bridges two regions: say so, ask for review
+                    obj.flags.append("straddles:" + ",".join(g.id for _, g in scored[:3]))
+                    for _, g in scored[:2]:
+                        g.needs_llm = True
+                        g.warnings.append(f"picture {obj.id} overlaps this region and another one")
+            if reg is None or (not is_pic and not S._counts(obj)):
                 continue
             obj.region = reg.id
-            (reg.pictures if obj.__class__.__name__ == "Picture" else reg.shapes).append(obj.id)
+            (reg.pictures if is_pic else reg.shapes).append(obj.id)
         for p in sh.pictures:
             p.neighbours = self._neighbours(p)
 
