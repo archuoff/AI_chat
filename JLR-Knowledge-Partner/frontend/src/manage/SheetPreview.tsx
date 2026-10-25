@@ -1,7 +1,8 @@
 import clsx from 'clsx'
-import { ChevronDown, CircleCheck, Eye, EyeOff, LoaderCircle, Maximize2, Minimize2, Minus, MousePointerClick, Plus, RotateCcw, TriangleAlert } from 'lucide-react'
+import { ChevronDown, CircleCheck, Eye, EyeOff, Image as ImageIcon, LoaderCircle, Maximize2, Minimize2, Minus, MousePointerClick, Plus, RotateCcw, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import type { CellStatus, ExcelPreview, ParseOptions, TableInfo } from '../lib/types'
+import { AuthImage } from '../lib/AuthImage'
+import type { CellStatus, ExcelPicture, ExcelPreview, ParseOptions, TableInfo } from '../lib/types'
 import { STATUS_META } from './excel'
 import { SheetGrid } from './SheetGrid'
 
@@ -37,6 +38,8 @@ export function SheetPreview({ preview, loading, error, draft, onDraft, onSheet 
   const [activeTable, setActiveTable] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
+  const [showPictures, setShowPictures] = useState(true)
+  const [pictureId, setPictureId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!expanded) return
@@ -60,6 +63,8 @@ export function SheetPreview({ preview, loading, error, draft, onDraft, onSheet 
     )
 
   const sheet = preview.sheet
+  const pictures = sheet.pictures ?? []
+  const picture = pictureId ? pictures.find((p) => p.id === pictureId) ?? null : null
   const selCell = selected
     ? sheet.rows.flatMap((r) => r.cells.map((c) => ({ ...c, r: r.r }))).find((c) => `${colLetterOf(c.c)}${c.r}` === selected)
     : null
@@ -100,8 +105,21 @@ export function SheetPreview({ preview, loading, error, draft, onDraft, onSheet 
       )}
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
-          <SheetTabs preview={preview} onSheet={(s) => { setSelected(null); setActiveTable(null); onSheet(s) }} />
+          <SheetTabs preview={preview} onSheet={(s) => { setSelected(null); setActiveTable(null); setPictureId(null); onSheet(s) }} />
         </div>
+        {pictures.length > 0 && (
+          <button
+            onClick={() => setShowPictures((v) => !v)}
+            aria-pressed={showPictures}
+            className={clsx(
+              'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-semibold transition',
+              showPictures ? 'bg-tt-electric/10 text-tt-electric ring-1 ring-tt-electric/30' : 'bg-white text-tt-slate ring-1 ring-tt-line hover:text-tt-navy',
+            )}
+            title="Show the pictures in their cells"
+          >
+            <ImageIcon size={14} /> Pictures {pictures.length}
+          </button>
+        )}
         <button
           onClick={() => setExpanded((e) => !e)}
           className={clsx(
@@ -137,7 +155,16 @@ export function SheetPreview({ preview, loading, error, draft, onDraft, onSheet 
       <div className={clsx('grid min-h-0 flex-1 gap-3', expanded ? 'lg:grid-cols-[1fr_340px]' : 'xl:grid-cols-[1fr_340px]')}>
         <div className="flex min-h-[420px] min-w-0 flex-col gap-3">
           <div className="min-h-0 flex-1">
-            <SheetGrid sheet={sheet} activeTable={activeTable} selected={selected} onSelect={setSelected} />
+            <SheetGrid
+              sheet={sheet}
+              activeTable={activeTable}
+              selected={selected}
+              onSelect={setSelected}
+              pictures={pictures}
+              showPictures={showPictures}
+              activePicture={pictureId}
+              onPicture={setPictureId}
+            />
           </div>
           <div className="rounded-xl border border-tt-line bg-white px-4 py-2.5">
             {selCell ? (
@@ -164,6 +191,7 @@ export function SheetPreview({ preview, loading, error, draft, onDraft, onSheet 
         </div>
 
         <aside className="scrollbar-thin min-h-0 space-y-3 overflow-y-auto pr-1">
+          {picture && <PictureCard picture={picture} onClose={() => setPictureId(null)} />}
           <SheetCard sheet={sheet} onSelect={setSelected} included={!sheetSkipDraft} onIncluded={(on) => setSheetSkip(!on)} />
           {sheet.tables.map((t, i) => (
             <TableCard
@@ -209,6 +237,49 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   )
 }
 
+const PICTURE_STATUS: Record<string, { label: string; cls: string }> = {
+  described: { label: 'Described', cls: 'bg-[#e3f6f2] text-[#0b6b61]' },
+  waiting: { label: 'Waiting for description', cls: 'bg-tt-amber-tint text-[#9a5a06]' },
+  skipped: { label: 'Skipped', cls: 'bg-tt-mist text-tt-slate' },
+  failed: { label: 'Failed', cls: 'bg-[#fdf0ea] text-[#8a3510]' },
+  unsupported: { label: 'Unreadable', cls: 'bg-[#fdf0ea] text-[#8a3510]' },
+}
+
+/** One picture of the sheet: the large image, what happened to it, its description and the text sent to the vision model. */
+function PictureCard({ picture, onClose }: { picture: ExcelPicture; onClose: () => void }) {
+  const status = PICTURE_STATUS[picture.status] ?? { label: picture.status, cls: 'bg-tt-mist text-tt-slate' }
+  const address = `${colLetterOf(picture.c)}${picture.r}`
+  return (
+    <div className="rounded-xl border border-tt-electric/40 bg-white p-3 ring-2 ring-tt-electric/10">
+      <div className="flex items-center gap-2">
+        <span className="rounded-lg bg-tt-navy px-2 py-0.5 font-display text-[12px] font-bold text-white">{address}</span>
+        <span className="text-[12px] text-tt-slate">{picture.placement === 'in_cell' ? 'Picture in the cell' : 'Picture on the sheet'}</span>
+        <button onClick={onClose} className="ml-auto rounded-md p-1 text-tt-slate hover:bg-tt-mist" aria-label="Close picture details">
+          <X size={14} />
+        </button>
+      </div>
+      <AuthImage id={picture.id} thumb={false} alt={`Picture in ${address}`} className="mt-2.5 max-h-64 w-full rounded-lg bg-tt-mist object-contain" />
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <span className={clsx('rounded px-1.5 py-0.5 text-[11px] font-semibold', status.cls)}>{status.label}</span>
+        {picture.width > 0 && <span className="text-[11px] text-tt-slate/70">{picture.width}×{picture.height} px</span>}
+      </div>
+      {picture.reason && <p className="mt-1.5 text-[12px] text-tt-slate">{picture.reason}</p>}
+      {picture.description && (
+        <div className="mt-2">
+          <div className="text-[11.5px] font-semibold text-tt-navy">Description</div>
+          <p className="mt-0.5 text-[12.5px] whitespace-pre-line text-tt-ink [overflow-wrap:anywhere]">{picture.description}</p>
+        </div>
+      )}
+      {picture.context && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11.5px] font-semibold text-tt-slate hover:text-tt-navy">Text sent to the vision model</summary>
+          <p className="mt-1 max-h-40 overflow-y-auto rounded-lg bg-tt-mist p-2 text-[11.5px] whitespace-pre-line text-tt-slate [overflow-wrap:anywhere]">{picture.context}</p>
+        </details>
+      )}
+    </div>
+  )
+}
+
 type SheetCardProps = { sheet: ExcelPreview['sheet']; onSelect: (a: string) => void; included: boolean; onIncluded: (on: boolean) => void }
 
 function SheetCard({ sheet, onSelect, included, onIncluded }: SheetCardProps) {
@@ -222,7 +293,8 @@ function SheetCard({ sheet, onSelect, included, onIncluded }: SheetCardProps) {
           <div className="text-[13.5px] font-semibold text-tt-navy">{ok ? 'All data captured' : `${c.percent}% of the data captured`}</div>
           <div className="mt-0.5 text-[12px] leading-snug text-tt-slate">
             {sheet.record_count} record{sheet.record_count === 1 ? '' : 's'} stored
-            {c.ignored_count > 0 && ` · ${c.ignored_count} picture or error cell${c.ignored_count === 1 ? '' : 's'} skipped`}
+            {(sheet.in_cell_pictures ?? 0) > 0 && ` · ${sheet.in_cell_pictures} picture${sheet.in_cell_pictures === 1 ? '' : 's'} in cells`}
+            {c.ignored_count > 0 && ` · ${c.ignored_count} error cell${c.ignored_count === 1 ? '' : 's'} skipped`}
           </div>
         </div>
       </div>

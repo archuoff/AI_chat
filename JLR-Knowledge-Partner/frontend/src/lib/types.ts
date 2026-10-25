@@ -191,12 +191,30 @@ export type SheetReport = {
   max_col: number
   merged_ranges: number
   images: number
+  in_cell_pictures?: number
+  pictures_unresolved?: { cell: string; reason: string }[]
   tables: TableInfo[]
   records: number
   coverage: Coverage
 }
 
 export type CellStatus = 'header' | 'data' | 'title' | 'section' | 'ignored' | 'missed' | 'skipped'
+
+/** A picture of the sheet and the cell (or merged area) it sits in. */
+export type ExcelPicture = {
+  id: string
+  r: number
+  c: number
+  r1: number
+  c1: number
+  placement: 'in_cell' | 'floating'
+  status: string
+  reason: string
+  description: string
+  context: string
+  width: number
+  height: number
+}
 
 export type ExcelPreview = {
   file_name: string
@@ -211,6 +229,7 @@ export type ExcelPreview = {
     merges: { r0: number; c0: number; r1: number; c1: number }[]
     records: Record<string, { row: number; section: string[]; fields: Record<string, unknown> }[]>
     record_count: number
+    pictures?: ExcelPicture[]
   }
 }
 

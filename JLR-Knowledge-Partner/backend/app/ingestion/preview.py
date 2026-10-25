@@ -1,11 +1,12 @@
 """Excel preview for the Manage page: the original sheet grid + what the parser decided for every cell."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter, range_boundaries
+from openpyxl.utils import column_index_from_string, get_column_letter, range_boundaries
 
 from .excel import analyze_sheet
 from .incell import read_incell_pictures
@@ -19,7 +20,31 @@ def _display(v: Any) -> str:
     return s if len(s) <= MAX_CELL_CHARS else s[: MAX_CELL_CHARS - 1] + "…"
 
 
-def build_excel_preview(path: Path, options: dict, sheet: str | None, max_rows: int, max_cols: int) -> dict:
+def _pictures(doc_id: str | None, sheet: str, sh, max_rows: int, max_cols: int) -> list[dict]:
+    """The document's pictures that sit on this sheet, with the cell (or merged area) they belong to."""
+    if not doc_id:
+        return []
+    from ..images import catalog  # lazy: the catalog imports the ingestion package
+
+    out = []
+    for img in catalog.list_images(doc_id):
+        loc = img.location or {}
+        m = re.match(r"^([A-Z]+)(\d+)$", str(loc.get("cell", "")))
+        if loc.get("sheet") != sheet or not m:
+            continue
+        c, r = column_index_from_string(m.group(1)), int(m.group(2))
+        r, c = sh.anchor.get((r, c), (r, c))  # inside a merged area: drawn in its top-left cell (covered cells are not shown)
+        if r > max_rows or c > max_cols:
+            continue
+        r1, c1 = sh.span.get((r, c), (r, c))
+        out.append({"id": img.id, "r": r, "c": c, "r1": min(r1, max_rows), "c1": min(c1, max_cols),
+                    "placement": loc.get("placement", "floating"), "status": img.status, "reason": img.reason,
+                    "description": img.description, "context": img.context, "width": img.width, "height": img.height})
+    return out
+
+
+def build_excel_preview(path: Path, options: dict, sheet: str | None, max_rows: int, max_cols: int,
+                        doc_id: str | None = None) -> dict:
     wb = load_workbook(path, data_only=True)
     try:
         visible = [ws for ws in wb.worksheets if ws.sheet_state == "visible"]
@@ -97,6 +122,7 @@ def build_excel_preview(path: Path, options: dict, sheet: str | None, max_rows: 
                 **{k: v for k, v in report.items() if k not in ("max_row", "max_col")},
                 "records": records_by_table,
                 "record_count": report["records"],
+                "pictures": _pictures(doc_id, ws.title, sh, max_rows, max_cols),
             },
         }
     finally:

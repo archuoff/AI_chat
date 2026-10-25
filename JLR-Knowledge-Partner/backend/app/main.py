@@ -346,7 +346,7 @@ def excel_preview(doc_id: str, sheet: str | None = None, max_rows: int = 150, ma
         raise HTTPException(400, "Sheet preview is available for Excel files.")
     try:
         return build_excel_preview(_source_or_409(doc), doc.get("parse_options") or {}, sheet,
-                                   max(10, min(max_rows, 500)), max(5, min(max_cols, 80)))
+                                   max(10, min(max_rows, 500)), max(5, min(max_cols, 80)), doc_id=doc_id)
     except KeyError as e:
         raise HTTPException(404, str(e)) from e
 

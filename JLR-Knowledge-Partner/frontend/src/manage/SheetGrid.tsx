@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { Fragment, memo, useMemo } from 'react'
-import type { ExcelPreview } from '../lib/types'
+import { AuthImage } from '../lib/AuthImage'
+import type { ExcelPicture, ExcelPreview } from '../lib/types'
 import { colLetter, rangeBounds, STATUS_META } from './excel'
 
 type Sheet = ExcelPreview['sheet']
@@ -9,12 +10,17 @@ type Props = {
   activeTable: string | null
   selected: string | null
   onSelect: (address: string | null) => void
+  /** pictures are drawn in the cell they belong to (instead of the "[picture]" text) */
+  pictures?: ExcelPicture[]
+  showPictures?: boolean
+  activePicture?: string | null
+  onPicture?: (id: string | null) => void
 }
 
 const key = (r: number, c: number) => `${r}:${c}`
 
 /** The original worksheet, merged cells included, coloured by what the parser did with each cell. */
-export const SheetGrid = memo(function SheetGrid({ sheet, activeTable, selected, onSelect }: Props) {
+export const SheetGrid = memo(function SheetGrid({ sheet, activeTable, selected, onSelect, pictures = [], showPictures = false, activePicture = null, onPicture }: Props) {
   const model = useMemo(() => {
     const cells = new Map<string, Sheet['rows'][number]['cells'][number]>()
     const usedRows = new Set<number>()
@@ -30,6 +36,12 @@ export const SheetGrid = memo(function SheetGrid({ sheet, activeTable, selected,
         usedRows.add(r)
         for (let c = m.c0; c <= m.c1; c++) if (r !== m.r0 || c !== m.c0) covered.add(key(r, c))
       }
+    }
+    const picAt = new Map<string, ExcelPicture[]>()
+    for (const p of pictures) {
+      const k = key(p.r, p.c)
+      picAt.set(k, [...(picAt.get(k) ?? []), p])
+      for (let r = p.r; r <= p.r1; r++) usedRows.add(r) // a picture on an otherwise empty row keeps its row
     }
     // collapse long runs of empty rows (and never split a merged block)
     const lines: ({ kind: 'row'; r: number } | { kind: 'gap'; from: number; to: number })[] = []
@@ -47,8 +59,8 @@ export const SheetGrid = memo(function SheetGrid({ sheet, activeTable, selected,
       r = end + 1
     }
     const tables = sheet.tables.map((t) => ({ id: t.id, ...rangeBounds(t.range) }))
-    return { cells, spans, covered, lines, tables }
-  }, [sheet])
+    return { cells, spans, covered, lines, tables, picAt }
+  }, [sheet, pictures])
 
   const active = activeTable ? model.tables.find((t) => t.id === activeTable) : null
   const inActive = (r: number, c: number) => !active || (r >= active.r0 && r <= active.r1 && c >= active.c0 && c <= active.c1)
@@ -93,6 +105,7 @@ export const SheetGrid = memo(function SheetGrid({ sheet, activeTable, selected,
                   const span = model.spans.get(k)
                   const address = `${colLetter(c)}${line.r}`
                   const meta = cell ? STATUS_META[cell.s] : null
+                  const here = showPictures ? model.picAt.get(k) : undefined
                   return (
                     <td
                       key={k}
@@ -108,7 +121,30 @@ export const SheetGrid = memo(function SheetGrid({ sheet, activeTable, selected,
                         selected === address && 'outline-2 -outline-offset-2 outline-tt-electric',
                       )}
                     >
-                      {cell && <div className="line-clamp-3 whitespace-pre-line [overflow-wrap:anywhere]">{cell.v}</div>}
+                      {here && (
+                        <div className="flex flex-wrap gap-1">
+                          {here.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onPicture?.(activePicture === p.id ? null : p.id)
+                              }}
+                              title={`Picture in ${address}: click for details`}
+                              className={clsx(
+                                'overflow-hidden rounded-md bg-white ring-1 transition hover:ring-tt-electric',
+                                activePicture === p.id ? 'ring-2 ring-tt-electric' : 'ring-tt-line',
+                              )}
+                            >
+                              <AuthImage id={p.id} alt={`Picture in ${address}`} className="block h-16 max-w-[140px] min-w-10 object-contain" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {cell && !(here && cell.v.startsWith('[picture')) && (
+                        <div className="line-clamp-3 whitespace-pre-line [overflow-wrap:anywhere]">{cell.v}</div>
+                      )}
                     </td>
                   )
                 })}
