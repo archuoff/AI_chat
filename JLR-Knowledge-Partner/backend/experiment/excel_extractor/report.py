@@ -139,7 +139,7 @@ def _sheet_html(sd: "SheetData", idx: int) -> str:
     parts.append("<h3>Regions</h3><table class='regions'><tr><th>id</th><th>range</th><th>kind</th><th>conf</th><th>title</th><th>headers</th><th>evidence</th></tr>")
     for g in sh.regions:
         parts.append(f"<tr class='{'unsure' if g.needs_llm else ''}'><td>{g.id}{' ↳' + g.parent if g.parent else ''}</td><td>{g.range}</td><td>{g.kind}</td>"
-                     f"<td>{g.confidence:.2f}{' ' + _e(g.alternatives) if g.alternatives else ''}</td><td>{_e(g.title)}</td>"
+                     f"<td>{g.confidence:.2f}{' (' + _e(', '.join(f'{k} {v:.2f}' for k, v in g.alternatives)) + ')' if g.alternatives else ''}</td><td>{_e(g.title)}</td>"
                      f"<td>{_e(' | '.join(h for h in g.headers if h)[:160])}</td><td>{_e('; '.join(g.evidence)[:300])}</td></tr>")
     parts.append("</table></section>")
     return "".join(parts)

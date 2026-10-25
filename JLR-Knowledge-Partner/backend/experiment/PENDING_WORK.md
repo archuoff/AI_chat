@@ -125,15 +125,15 @@ Where to adjust (all in `regions.py` unless noted), with the current thresholds:
 - If a fixture exposes a wrong decision, change the rule or threshold, add a comment saying why, and keep every earlier test green. Do not special-case a fixture.
 Known weak spots to check first: a table whose data rows are all different shapes (low uniformity), tables with only 2 data rows, a title bar that is not merged, borderless tables with fills only, pictures straddling two regions, hidden rows inside a region, very wide sheets (> 40 columns), and sheets where fills cover almost every cell (`FRAME_LIMIT`).
 
-### T5. Look at the report
+### T5. Look at the report  — DONE (report renders as intended; fixed the confidence column text)
 Script (put in `experiment/tests/shot.py`, not collected by pytest): extract `radar_like`, open `report.html` with Playwright (Chromium, viewport 1500x1100, `--no-sandbox`),
 screenshot to `/tmp/radar_report.png`, and view it. Verify visually: merged cells drawn as merged, picture row shows the four pictures in `C5:F5`, floating pictures sit inside the framed boxes,
 region outlines match the expected ranges (labels like `R3 transposed_table 0.9`). Fix `report.py` if pictures or outlines are off by a row / column.
 
-### T6. README: `experiment/README.md`
+### T6. README: `experiment/README.md`  — DONE
 What it is, how to run each command, the output files, a short JSON schema description (model.json / cells jsonl / layout.json), the edge-case matrix with the test that covers each case, known limitations, and how the later LLM step will use `layout.json` (patch instructions, never rewritten values).
 
-### T7. Wrap up
+### T7. Wrap up  — DONE (see section 6)
 Run both test suites, commit and push, then update `JLR-Knowledge-Partner/backend/experiment/PENDING_WORK.md` (tick what is done, list what is left).
 
 ## 3. Definition of done
@@ -148,3 +148,8 @@ LLM calls (map, validator, enrichment), cards / chunking from regions, VLM pictu
 ## 5. When the owner has the real (confidential) file
 Ask the owner to run on the office PC: `python -m experiment.excel_extractor inspect "<file>"` and paste the output. Compare with the assumptions in section 1
 (rich values, `vm` cells, `richData` parts); fix `ooxml.py` if the real structure differs (for example other rich value types or `_webimage`).
+
+
+## 6. Status at close
+- T1 to T7 done. 50 tests pass (2 known weak spots are fixed, not skipped). App suite unchanged (18 pass, 4 skipped on SQLite).
+- Next (not started, needs the owner): run `inspect` on the real Radar workbook on the office PC and paste the output; check the region rules against it; then decide on the LLM judge (section "Understand") and the review inbox.
