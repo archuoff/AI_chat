@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     llm_planning: Literal["always", "follow-ups"] = "always"
     llm_judge: bool = True
     judge_candidates: int = 24
+    link_pictures: bool = True  # a selected row / slide also brings its pictures, and a selected picture its row / slide text
+    max_linked_chunks: int = 8  # cap per question
     max_table_rows: int = 30  # list/comparison questions: rows pulled in from a qualifying table
     max_context_chars: int = 16000  # cap on evidence text sent to the LLM
     chat_memory_path: str = str(BASE_DIR / "data" / "chat_memory.sqlite")

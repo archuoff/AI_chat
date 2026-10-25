@@ -20,7 +20,7 @@
    boilerplate, TOC dot leaders, logo / icon / divider / blank / duplicate pictures), reported in `stats["cleaning"]`.
 2. **VLM descriptions with neighbour context**: box title, column header, row label, caption, same-row text; one call per picture.
 3. **Sheet preview draws pictures at their cell** (backend preview JSON + `SheetGrid` / `SheetPreview`).
-4. **Image fetching in retrieval**: picture chunks linked to the record chunks of the same sheet / row, both ways.
+4. **DONE (code + tests):** image fetching in retrieval: a selected Excel row brings its pictures and a selected picture brings its row (same for PowerPoint slides), `LINK_PICTURES` / `MAX_LINKED_CHUNKS`. PDF pages: later, with Docling captions.
 5. **PDF: replace `pypdf` with Docling** (layout + tables + OCR, models from a local folder); then reuse steps 2 and 4 for PDF pictures.
 
 ## Later

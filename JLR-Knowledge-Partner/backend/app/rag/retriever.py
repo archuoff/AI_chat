@@ -148,7 +148,7 @@ def _finalise(unit: dict) -> dict:
         "file_type": head["file_type"], "kind": head["kind"], "context": head["context"], "location": head["location"],
         "section": head.get("section", []), "title": head.get("title"), "text": text, "fields": fields or None,
         "exact": any(c.get("exact") for c in chunks), "structured": any(c.get("structured") for c in chunks),
-        "chunk_ids": [c["id"] for c in chunks], "image_id": head.get("image_id"),
+        "chunk_ids": [c["id"] for c in chunks], "image_id": head.get("image_id"), "linked": bool(unit.get("linked")),
     }
 
 
@@ -217,6 +217,44 @@ def _group_tables(units: list[dict]) -> list[dict]:
             placed.add(k)
             out.extend(sorted(groups[k], key=lambda x: (x["chunks"][0].get("location") or {}).get("row", 0)))
     return out
+
+
+def _link_pictures(final: list[dict], cap: int) -> int:
+    """A picture and the text it sits with travel together (no graph needed: same document + same sheet row / slide).
+
+    * Excel: a selected row record brings the pictures of that row; a selected picture brings its row record.
+    * PowerPoint: a selected slide text / table row brings the slide's pictures; a picture brings the slide text.
+    The linked chunks become their own evidence items (own citation, own picture) placed next to the item they belong to."""
+    store = get_store()
+    seen = {_unit_key(c) for u in final for c in u["chunks"]}
+    out: list[dict] = []
+    added = 0
+    for u in final:
+        head = u["chunks"][0]
+        loc = head.get("location") or {}
+        before: list[dict] = []
+        after: list[dict] = []
+        if added < cap and head["kind"] in ("record", "image", "text") and ("slide" in loc or ("sheet" in loc and "row" in loc)):
+            if "slide" in loc:
+                flt: dict[str, Any] = {"doc_id": head["doc_id"], "location.slide": loc["slide"]}
+            else:
+                flt = {"doc_id": head["doc_id"], "location.sheet": loc["sheet"], "location.row": loc["row"]}
+            is_picture = head["kind"] == "image"
+            if "sheet" in loc and head["kind"] == "text":
+                pass  # a sheet's free text has no row: nothing to link
+            else:
+                for c in store.scroll_chunks(flt, limit=12):
+                    if (c["kind"] == "image") == is_picture or _unit_key(c) in seen or added >= cap:
+                        continue  # a picture links to text, text links to pictures; never twice
+                    seen.add(_unit_key(c))
+                    linked = {"chunks": [c], "score": u["score"], "sim": u["sim"], "grade": u.get("grade", 0), "linked": True}
+                    (before if is_picture else after).append(linked)
+                    added += 1
+        out.extend(before)
+        out.append(u)
+        out.extend(after)
+    final[:] = out
+    return added
 
 
 def retrieve(question: str, plan: dict, user_filters: dict | None = None, timings: dict | None = None,
@@ -306,6 +344,8 @@ def retrieve(question: str, plan: dict, user_filters: dict | None = None, timing
     for u in final:
         u["chunks"].sort(key=lambda c: c["chunk_index"])
         _expand(u)
+    if s.link_pictures:
+        timings["linked"] = _link_pictures(final, s.max_linked_chunks)
     evidence = [_finalise(u) for u in final]
     for n, e in enumerate(evidence, start=1):
         e["n"] = n
