@@ -11,6 +11,24 @@ from .evidence import encoded, load_evidence
 from .schema import LayoutProposal
 
 
+def describe_error(exc: Exception) -> str:
+    """Say why a call failed without echoing request or response content (it may hold document text)."""
+    parts = [type(exc).__name__]
+    errors = getattr(exc, 'errors', None)
+    if callable(errors):  # pydantic ValidationError: field path + kind only, never the offending value
+        try:
+            parts.append('; '.join(f"{'.'.join(str(x) for x in e['loc'])}: {e['type']}" for e in errors()[:8]))
+        except Exception:
+            pass
+    for attr in ('status_code', 'code'):
+        value = getattr(exc, attr, None)
+        if isinstance(value, (int, str)) and len(str(value)) <= 60:
+            parts.append(f'{attr}={value}')
+    if type(exc) is ValueError:  # raised by our own code with fixed messages (truncated / refusal / schema)
+        parts.append(str(exc)[:200])
+    return ' | '.join(p for p in parts if p)
+
+
 def run(source: Path, out: Path, *, prepare_only: bool = False, sheet: str | None = None,
         max_calls: int = 20, max_cells: int = 200, max_chars: int = 48000,
         include_hidden: bool = False, provider=None) -> int:
@@ -51,7 +69,11 @@ def run(source: Path, out: Path, *, prepare_only: bool = False, sheet: str | Non
                  'omitted_cells': item.payload['omitted_cells']}
         if not prepare_only:
             try:
-                proposal, usage = provider.analyse(item)
+                try:
+                    proposal, usage = provider.analyse(item)
+                except Exception as first:  # one retry: structured output or a rate limit often passes the second time
+                    entry['first_attempt_error'] = describe_error(first)
+                    proposal, usage = provider.analyse(item)
                 proposal = LayoutProposal.model_validate(proposal)
                 report['usage']['successful_calls'] += 1
                 for key in ('input_tokens', 'output_tokens'):
@@ -61,8 +83,8 @@ def run(source: Path, out: Path, *, prepare_only: bool = False, sheet: str | Non
                 if not entry['validation']['valid_references']:
                     failed = True
             except Exception as exc:
-                # Provider exceptions can embed request data; persist a category, never the raw exception.
-                entry['error'] = f'{type(exc).__name__}: analysis failed; check Azure configuration, deployment support, quota and connectivity'
+                # Provider exceptions can embed request data; persist type, status and schema paths only.
+                entry['error'] = f'analysis failed after 2 attempts: {describe_error(exc)}'
                 report['usage']['failed_calls'] += 1
                 failed = True
         report['items'].append(entry)
