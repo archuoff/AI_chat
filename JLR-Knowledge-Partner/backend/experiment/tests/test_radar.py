@@ -71,13 +71,10 @@ def test_inventory_complete(ex_cache):
     assert sheet(ex_cache("radar")).inventory["verdict"] == "complete"
 
 
-# Known gap, documented rather than hidden: the framed positional overview (B13:F28, two merged blocks with
-# pictures) is currently read as one picture strip, not as a frame with children. Fixing it is task T4.
-import pytest  # noqa: E402
-
-
-@pytest.mark.xfail(strict=True, reason="framed overview is not split into a frame with children yet (T4)")
 def test_framed_overview_is_a_frame_with_children(ex_cache):
+    """Two merged blocks with pictures inside one outer frame: the frame and its blocks are separate regions."""
     sh = sheet(ex_cache("radar"))
-    frame = region(sh, "frame")
-    assert len(frame.children) >= 2
+    frame = region(sh, "frame", "B13:F28")
+    children = [g for g in sh.regions if g.parent == frame.id]
+    assert [g.range for g in children] == ["B13:C28", "D13:E28", "F13:F17"]
+    assert len(children[0].pictures) == 1 and len(children[1].pictures) == 1

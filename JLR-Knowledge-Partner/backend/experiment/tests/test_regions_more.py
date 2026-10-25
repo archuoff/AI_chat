@@ -25,10 +25,6 @@ def test_section_rows_do_not_split_the_table(ex_cache):
     assert tables[0].data_rows == [4, 5, 7, 8]
 
 
-import pytest  # noqa: E402
-
-
-@pytest.mark.xfail(strict=True, reason="side-by-side tables that share rows are merged into one block (T4 weak spot)")
 def test_side_by_side_tables_are_separate(ex_cache):
     """Two tables share rows 2-5 and are split by blank column E: they must be two regions (known weak spot, see PENDING_WORK T4)."""
     sh = sheet(ex_cache("side"))

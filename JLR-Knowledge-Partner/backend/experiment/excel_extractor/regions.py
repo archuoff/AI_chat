@@ -142,11 +142,14 @@ class Sheeter:
         return {r: self.row_items(r, c0, c1) for r in range(r0, r1 + 1)}
 
     def border(self, r: int, c: int, side: str) -> bool:
-        st = self.d.style(r, c)
+        """Is there a line on this side of the cell. A merged area is one box: its style is the master's, and only its outer edge counts."""
         m = self.d.merge_at.get((r, c))
-        if m is not None:  # a merged area's border lives on the cells at its edge
+        if m is not None:
             if side == "L" and c != m.c0 or side == "R" and c != m.c1 or side == "T" and r != m.r0 or side == "B" and r != m.r1:
                 return False
+            st = self.d.style(m.r0, m.c0)
+        else:
+            st = self.d.style(r, c)
         return bool(st and side in st.border)
 
     def edge(self, r: int, c: int, side: str) -> bool:
@@ -168,14 +171,10 @@ def find_blocks(cells: set[tuple[int, int]]) -> list[Bounds]:
     for r0, r1 in _runs(list(by_row)):
         rows = range(r0, r1 + 1)
         cols = _runs([c for r in rows for c in by_row.get(r, [])])
-        groups: list[list] = []  # [c0, c1, rowset]
+        # a column that is blank for every row of this band is a break: two tables that share rows are split by their gap
         for c0, c1 in cols:
             rs = {r for r in rows if any(c0 <= c <= c1 for c in by_row.get(r, []))}
-            if groups and len(rs & groups[-1][2]) / len(rs | groups[-1][2]) >= 0.6:
-                groups[-1][1], groups[-1][2] = c1, groups[-1][2] | rs
-            else:
-                groups.append([c0, c1, rs])
-        blocks.extend((min(rs), c0, max(rs), c1) for c0, c1, rs in groups)
+            blocks.append((min(rs), c0, max(rs), c1))
     return sorted(blocks)
 
 

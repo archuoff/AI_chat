@@ -109,6 +109,11 @@ Write one test file per theme and assert exactly:
 - `test_cli.py`: `inspect --json` output contains no cell text (search for a unique string written into the fixture); `extract` writes all files; `compare` runs.
 
 ### T4. Fix what the tests show (most of the effort)
+
+**Status (done):** both known gaps are fixed and their tests are strict (no expected failures left).
+1. Merged areas now read their border from the master cell (`Sheeter.border`). Before, covered cells had no style, so merged blocks looked borderless and no frame was found. Result: the framed overview is a `frame` with three children.
+2. Blocks are split at every column that is blank for their rows (`find_blocks`). The old rule merged column groups that overlapped in rows, which joined side-by-side tables. Trade-off: a table with an empty spacer column inside it is now split in two. Accepted because "blank column = break" is the same rule used for rows; revisit if a real file shows it.
+Open weak spots (not yet fixed, no test yet): tables with only two data rows, borderless fill-only tables, pictures straddling two regions.
 Where to adjust (all in `regions.py` unless noted), with the current thresholds:
 - Title bar split: `_bar` score >= 5 (width span >= 80 % +2, dark / mid fill +2, bold or size >= 13 +1, next row header-like +2, next row data-like -1).
 - Frame: `_split_frame` needs outer border >= 80 % of the perimeter and dividers on >= 80 % of the box length; if vertical OR horizontal dividers cover >= 60 % of the boundaries it is a ruled list / grid table, not a frame.
