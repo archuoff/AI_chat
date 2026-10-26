@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     expand_section_max_chars: int = 6000  # when one chunk of a section matches, return the whole section up to this size
     clean_repeat_pages: int = 4  # the same picture / table on this many pages or slides = logo or header / footer = noise
     clean_noise: bool = True  # deterministic noise removal for PDF / Word / PowerPoint (page numbers, repeated headers, logos ...)
+    # Docling (PDF layout + tables). The model folder must be set here (backend/.env), not only as a Windows variable.
+    docling_artifacts_path: str = ""  # folder with the downloaded Docling models (offline PCs)
+    docling_ocr: bool = True
+    docling_table_mode: Literal["accurate", "fast"] = "accurate"
+    docling_code_formula: bool = False  # extra models + time
+    docling_picture_classifier: bool = True  # labels pictures (photo / chart / diagram); dropped automatically if its model is missing
+    docling_layout_preset: str = "layout_heron_default"  # empty = Docling's own default layout model
     pdf_engine: Literal["auto", "docling", "pypdf"] = "auto"  # auto = Docling when installed, else pypdf (with a warning)
 
     # ---------------- upload suggestions (similar documents; code only, no LLM)

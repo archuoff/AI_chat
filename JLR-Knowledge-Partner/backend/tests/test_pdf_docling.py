@@ -2,6 +2,8 @@
 import pytest
 
 pytest.importorskip("docling_core")
+from types import SimpleNamespace
+
 from docling_core.types.doc import BoundingBox, DocItemLabel, DoclingDocument, ProvenanceItem, Size, TableCell, TableData
 from docling_core.types.doc.base import CoordOrigin
 
@@ -91,3 +93,66 @@ def test_export_blocks_sections_tables_and_pictures_carry_breadcrumbs(doc):
     assert {s["title"]: s["breadcrumb"] for s in ex["sections"][1:]}["1.1 Range"] == ["spec.pdf", "1 Scope", "1.1 Range"]
     pic = ex["pictures"][0]
     assert pic["breadcrumb"][-1] == "Page 3" and pic["relations"]["section"] == "s4"
+
+
+# ---- model folder and missing models (no real Docling needed)
+class LocalEntryNotFoundError(Exception):
+    """Same name as the Hugging Face error that appears on an offline PC."""
+
+
+def test_model_folder_is_read_from_the_env_file_not_only_from_windows_variables(tmp_path):
+    from app.config import Settings
+
+    env = tmp_path / ".env"
+    env.write_text("DOCLING_ARTIFACTS_PATH=C:/models/docling\nDOCLING_TABLE_MODE=fast\nDOCLING_PICTURE_CLASSIFIER=false\n")
+    s = Settings(_env_file=env)
+    assert s.docling_artifacts_path == "C:/models/docling" and s.docling_table_mode == "fast" and not s.docling_picture_classifier
+
+
+def test_missing_optional_models_are_dropped_one_step_at_a_time(monkeypatch, tmp_path):
+    from app.ingestion import pdf_docling
+
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test")
+    tried = []
+
+    class Fake:
+        def __init__(self, ok):
+            self.ok = ok
+
+        def convert(self, path, raises_on_error=False):
+            if not self.ok:
+                raise LocalEntryNotFoundError("Cannot find an appropriate cached snapshot folder ... outgoing traffic has been disabled")
+            return SimpleNamespace(document="DOC", status="success", errors=[])
+
+    def make(flags):
+        tried.append(dict(flags))
+        return Fake(ok=flags.get("classifier") is False), {"engine": "docling"}
+
+    monkeypatch.setattr(pdf_docling, "_make_converter", make)
+    doc, config, _ = pdf_docling.convert(pdf)
+    assert doc == "DOC" and tried == [{}, {"classifier": False}]
+    assert config["downgrades"] and "ran without it" in config["downgrades"][0]
+
+
+def test_if_every_attempt_fails_the_error_says_what_to_check(monkeypatch, tmp_path):
+    import pytest
+
+    from app.ingestion import pdf_docling
+
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test")
+
+    class Broken:
+        def convert(self, *a, **k):
+            raise LocalEntryNotFoundError("cached snapshot folder not found")
+
+    monkeypatch.setattr(pdf_docling, "_make_converter", lambda flags: (Broken(), {}))
+    with pytest.raises(RuntimeError, match="DOCLING_ARTIFACTS_PATH in backend/.env is NOT SET"):
+        pdf_docling.convert(pdf)
+    assert pdf_docling._is_missing_model(LocalEntryNotFoundError("x")) and not pdf_docling._is_missing_model(ValueError("other"))
+
+
+def test_downgrades_show_up_as_a_document_warning(doc):
+    ex = export_chunk_ready(doc, "spec.pdf", config={"downgrades": ["picture classifier model files not found; ran without it"]})
+    assert any(p.startswith("Docling: picture classifier") for p in ex["checks"]["problems"])

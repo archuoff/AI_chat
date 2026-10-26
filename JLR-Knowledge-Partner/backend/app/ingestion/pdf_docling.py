@@ -37,12 +37,11 @@ _FURNITURE = {"page_header", "page_footer"}
 
 
 # ------------------------------------------------------------------ 1. conversion
-def convert(path: str | Path) -> tuple[Any, dict[str, Any], Any]:
-    """Run Docling on one PDF -> (DoclingDocument, configuration used, conversion result)."""
-    path = Path(path)
-    with path.open("rb") as f:
-        if f.read(5) != b"%PDF-":
-            raise ValueError(f"Not a PDF: {path}")
+def _make_converter(flags: dict[str, bool]) -> tuple[Any, dict[str, Any]]:
+    """Docling pipeline from the settings in backend/.env. `flags` switch off the optional models of a lighter attempt."""
+    from ..config import get_settings
+
+    cfg = get_settings()
     try:
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
@@ -51,30 +50,32 @@ def convert(path: str | Path) -> tuple[Any, dict[str, Any], Any]:
         raise RuntimeError("Docling is not installed in this Python environment") from exc
 
     opts = PdfPipelineOptions()
-    opts.do_ocr = os.environ.get("DOCLING_OCR", "1") != "0"
+    opts.do_ocr = cfg.docling_ocr
     opts.do_table_structure = True
-    opts.table_structure_options.mode = (TableFormerMode.FAST if os.environ.get("DOCLING_TABLE_MODE", "accurate") == "fast"
-                                         else TableFormerMode.ACCURATE)
-    opts.do_code_enrichment = os.environ.get("DOCLING_CODE_FORMULA", "0") == "1"  # extra models + time; off by default
-    opts.do_formula_enrichment = opts.do_code_enrichment
+    opts.table_structure_options.mode = TableFormerMode.FAST if cfg.docling_table_mode == "fast" else TableFormerMode.ACCURATE
+    opts.do_code_enrichment = opts.do_formula_enrichment = cfg.docling_code_formula
     opts.generate_picture_images = True
     opts.enable_remote_services = False
     config: dict[str, Any] = {"engine": "docling", "ocr": opts.do_ocr, "table_mode": opts.table_structure_options.mode.value,
                               "code_formula": opts.do_code_enrichment}
-    try:  # these presets depend on the Docling version; a missing one must not stop the conversion
-        from docling.datamodel.pipeline_options import LayoutObjectDetectionOptions
-        opts.layout_options = LayoutObjectDetectionOptions.from_preset("layout_heron_default")
-        config["layout_model"] = "layout_heron_default"
-    except Exception as exc:  # noqa: BLE001
-        config["layout_model"] = f"default ({type(exc).__name__})"
-    try:
-        from docling.datamodel.picture_classification_options import DocumentPictureClassifierOptions
-        opts.picture_classification_options = DocumentPictureClassifierOptions.from_preset("document_figure_classifier_v2")
-        opts.do_picture_classification = True
-        config["picture_classifier"] = "document_figure_classifier_v2"
-    except Exception as exc:  # noqa: BLE001
-        config["picture_classifier"] = f"off ({type(exc).__name__})"
-    artifacts = os.environ.get("DOCLING_ARTIFACTS_PATH", "").strip()
+    config["layout_model"] = "docling default"
+    if flags.get("layout_preset", True) and cfg.docling_layout_preset:
+        try:  # presets depend on the Docling version; a missing one must not stop the conversion
+            from docling.datamodel.pipeline_options import LayoutObjectDetectionOptions
+            opts.layout_options = LayoutObjectDetectionOptions.from_preset(cfg.docling_layout_preset)
+            config["layout_model"] = cfg.docling_layout_preset
+        except Exception as exc:  # noqa: BLE001
+            config["layout_model"] = f"docling default ({type(exc).__name__})"
+    config["picture_classifier"] = "off"
+    if flags.get("classifier", True) and cfg.docling_picture_classifier:
+        try:
+            from docling.datamodel.picture_classification_options import DocumentPictureClassifierOptions
+            opts.picture_classification_options = DocumentPictureClassifierOptions.from_preset("document_figure_classifier_v2")
+            opts.do_picture_classification = True
+            config["picture_classifier"] = "document_figure_classifier_v2"
+        except Exception as exc:  # noqa: BLE001
+            config["picture_classifier"] = f"off ({type(exc).__name__})"
+    artifacts = cfg.docling_artifacts_path.strip()
     if artifacts:
         if not Path(artifacts).is_dir():
             raise ValueError(f"DOCLING_ARTIFACTS_PATH is not a folder: {artifacts}")
@@ -85,12 +86,73 @@ def convert(path: str | Path) -> tuple[Any, dict[str, Any], Any]:
         config["docling_version"] = md.version("docling")
     except Exception:  # noqa: BLE001
         config["docling_version"] = "unknown"
-    result = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}).convert(
-        str(path), raises_on_error=False)
-    if getattr(result, "document", None) is None:
-        raise RuntimeError(f"Docling returned no document ({getattr(result, 'status', '?')}): "
-                           f"{[str(e)[:200] for e in (getattr(result, 'errors', None) or [])][:3]}")
-    return result.document, config, result
+    return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}), config
+
+
+def _chain(exc: BaseException):
+    while exc is not None:
+        yield exc
+        exc = exc.__cause__ or exc.__context__
+
+
+def _is_missing_model(exc: BaseException) -> bool:
+    """A model that is not on the disk while downloads are switched off (Hugging Face offline)."""
+    return any(type(e).__name__ == "LocalEntryNotFoundError" or "cached snapshot" in str(e) or "offline mode" in str(e).lower()
+               for e in _chain(exc))
+
+
+def _stage_of(exc: BaseException) -> str:
+    """Which Docling model was being loaded, read from the traceback (the Hugging Face message does not name it)."""
+    import traceback
+
+    for e in _chain(exc):
+        for frame in reversed(traceback.extract_tb(e.__traceback__)):
+            name = frame.filename.replace("\\", "/").lower()
+            if "docling" in name and "huggingface" not in name:
+                for key, label in (("layout", "layout"), ("table", "table structure"), ("classif", "picture classifier"),
+                                   ("ocr", "OCR"), ("code_formula", "code / formula")):
+                    if key in name:
+                        return label
+    return "unknown model"
+
+
+def convert(path: str | Path) -> tuple[Any, dict[str, Any], Any]:
+    """Run Docling on one PDF -> (DoclingDocument, configuration used, conversion result).
+
+    If a model file is missing on this PC the optional models are dropped one step at a time (picture classifier, then the
+    layout preset) and the document is told which ones; if the required models are missing too, the error names the stage."""
+    from ..config import get_settings
+
+    path = Path(path)
+    with path.open("rb") as f:
+        if f.read(5) != b"%PDF-":
+            raise ValueError(f"Not a PDF: {path}")
+    cfg = get_settings()
+    attempts = [{}]
+    if cfg.docling_picture_classifier:
+        attempts.append({"classifier": False})
+    if cfg.docling_layout_preset:
+        attempts.append({"classifier": False, "layout_preset": False})
+    downgrades: list[str] = []
+    missing = ""
+    for flags in attempts:
+        try:
+            converter, config = _make_converter(flags)
+            result = converter.convert(str(path), raises_on_error=False)
+        except Exception as exc:  # noqa: BLE001
+            if not _is_missing_model(exc):
+                raise
+            missing = _stage_of(exc)
+            downgrades.append(f"{missing} model files not found")
+            continue
+        if getattr(result, "document", None) is None:
+            raise RuntimeError(f"Docling returned no document ({getattr(result, 'status', '?')}): "
+                               f"{[str(e)[:200] for e in (getattr(result, 'errors', None) or [])][:3]}")
+        config["downgrades"] = [f"{d}; ran without it" for d in downgrades]  # the document is told what was left out
+        return result.document, config, result
+    raise RuntimeError(f"Docling model files not found on this PC ({'; '.join(dict.fromkeys(downgrades))}). "
+                       f"DOCLING_ARTIFACTS_PATH in backend/.env is {cfg.docling_artifacts_path.strip() or 'NOT SET'}: it must be the folder "
+                       "that contains the downloaded Docling models, and the models must match this Docling version.")
 
 
 # ------------------------------------------------------------------ 2. export
@@ -316,6 +378,8 @@ def export_chunk_ready(doc: Any, file_name: str = "", *, images_dir: str | Path 
         checks["problems"].append("all headings share one level and have no numbering; the section tree is flat")
     if not blocks:
         checks["problems"].append("no content extracted")
+    for d in (config or {}).get("downgrades", []):
+        checks["problems"].append(f"Docling: {d}")
     if checks["tables_without_rows"]:
         checks["problems"].append(f"{len(checks['tables_without_rows'])} table(s) without rows")
     if checks["conversion_status"] and "success" not in checks["conversion_status"].lower():
