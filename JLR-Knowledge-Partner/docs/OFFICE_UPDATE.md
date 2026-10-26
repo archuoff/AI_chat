@@ -1,3 +1,34 @@
+# FIRST: the PostgreSQL / Alembic commit (70f4f3d) is missing on the office PC
+
+The list below assumes you already have it. If `backend/alembic.ini` is missing, you do not. Without these files the backend
+cannot start (startup runs the Alembic migrations, also on SQLite) and the picture catalog table is not created.
+Copy these 19 files too (paths relative to `JLR-Knowledge-Partner/`), or simply pull the whole branch (recommended):
+
+| File | State |
+|---|---|
+| `backend/alembic.ini` | new |
+| `backend/migrations/env.py` | new |
+| `backend/migrations/script.py.mako` | new |
+| `backend/migrations/versions/0001_baseline.py` | new |
+| `backend/app/dbcopy.py` | new |
+| `backend/tests/test_database.py` | new |
+| `backend/app/auth/db.py` | modified (engine, `init_db` runs the migrations) |
+| `backend/app/auth/usage.py` | modified |
+| `backend/app/cli.py` | modified (`migrate-db` command) |
+| `backend/app/graphs/chat_graph.py` | modified (chat memory on PostgreSQL or SQLite) |
+| `backend/app/images/catalog.py` | modified (also changed later: take the latest) |
+| `backend/app/main.py` | modified (also changed later: take the latest) |
+| `backend/app/config.py` | modified (also changed later: take the latest) |
+| `backend/tests/conftest.py` | modified |
+| `backend/requirements.txt`, `backend/requirements.lock.txt` | modified (`alembic`, `psycopg`, `langgraph-checkpoint-postgres`) |
+| `backend/.env.example`, `backend/README.md`, `README.md` | modified (setup steps) |
+
+Then, in the backend environment: `pip install -r requirements.txt`, restart the backend. With no `DATABASE_URL` set it keeps using the
+SQLite file `backend/data/app.db` (your accounts stay; the Alembic baseline is stamped on first start). PostgreSQL itself is optional:
+see `backend/README.md` when you want it.
+
+---
+
 # Office PC update: files changed since the Analyst run (commit 64e385d) and what to run
 
 Easiest: `git pull origin claude/jolly-ramanujan-ee3mg9` (everything below comes with it).
