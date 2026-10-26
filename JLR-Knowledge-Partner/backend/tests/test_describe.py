@@ -59,3 +59,36 @@ def test_repeated_logo_in_a_pdf_is_still_skipped_but_only_from_four_places(api):
     assert three["skipped"] == 2  # 3 places: only exact duplicates of the first
     four = catalog.sync("p4", [RawImage(logo, "png", {"page": i}, "") for i in (1, 2, 3, 4)])
     assert four["skipped"] == 4
+
+
+class FakeVision:
+    """Like AzureChatOpenAI: the length limit is a field, and bind(max_tokens=...) must never be used (Azure 400)."""
+
+    def __init__(self, max_tokens=700):
+        self.max_tokens, self.sent = max_tokens, []
+
+    def model_copy(self, update):
+        clone = FakeVision(update.get("max_tokens", self.max_tokens))
+        clone.sent = self.sent
+        return clone
+
+    def bind(self, **kw):
+        raise AssertionError("bind(max_tokens=...) sends both max_tokens and max_completion_tokens")
+
+    def invoke(self, messages):
+        self.sent.append((self.max_tokens, messages))
+        return SimpleNamespace(content="Summary: red car\nContext match: yes", usage_metadata={"input_tokens": 100, "output_tokens": 10})
+
+
+def test_brief_mode_limits_the_answer_with_a_copy_not_with_bind(api):
+    catalog.sync("d1", [RawImage(png((200, 30, 30)), "png", {"sheet": "S", "row": 5, "cell": "D5"}, "Sheet: S"),
+                        RawImage(png((30, 30, 200)), "png", {"page": 2}, "page text")])
+    excel, pdf = catalog.list_images("d1")
+    fake = FakeVision()
+    text, usage = describe._describe_one(fake, excel, "x.xlsx")
+    assert text.startswith("Summary") and usage["output_tokens"] == 10
+    limit, messages = fake.sent[0]
+    assert limit == 120 and messages[0][1][1]["image_url"]["detail"] == "low"  # short answer, low detail
+    describe._describe_one(fake, pdf, "x.pdf")
+    limit, messages = fake.sent[1]
+    assert limit == 700 and messages[0][1][1]["image_url"]["detail"] == "high"  # other formats keep the full settings

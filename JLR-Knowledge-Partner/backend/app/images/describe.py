@@ -138,7 +138,8 @@ def _describe_one(llm, img: catalog.DocImage, file_name: str) -> tuple[str, dict
     data = base64.b64encode(catalog.file_path(img).read_bytes()).decode()
     usage: dict = {}
     if mode == "brief" and not s.vision_reasoning_model:
-        llm = llm.bind(max_tokens=s.vision_brief_max_tokens)
+        # a copy with its own length limit: bind(max_tokens=...) would send max_tokens AND max_completion_tokens (Azure: 400)
+        llm = llm.model_copy(update={"max_tokens": s.vision_brief_max_tokens})
     msg = llm.invoke([("user", [
         {"type": "text", "text": (PROMPT_BRIEF if mode == "brief" else PROMPT).format(where=where, context=img.context.strip()[:1000] or "(none)")},
         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{data}", "detail": _detail(mode)}},
