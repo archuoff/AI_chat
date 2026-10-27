@@ -1,0 +1,69 @@
+<div class="up eng-scroll"><div class="in">
+  <div class="uh"><h2>Usage</h2>
+    <div class="seg">@for (d of daysOptions; track d) { <button type="button" [class.on]="days() === d" (click)="days.set(d)">{{ d }} days</button> }</div></div>
+
+  <div class="tiles">
+    <div class="tile eng-card"><div class="th"><span class="ti c1"><eng-icon name="message" [size]="17" /></span><span>Questions asked</span></div><div class="tv">{{ t() ? fmt(t()!.questions) : '–' }}</div><div class="ts">last {{ days() }} days</div></div>
+    <div class="tile eng-card"><div class="th"><span class="ti c2"><eng-icon name="zap" [size]="17" /></span><span>LLM tokens</span></div><div class="tv">{{ t() ? fmt(t()!.input_tokens + t()!.output_tokens) : '–' }}</div>@if (t(); as x) { <div class="ts">{{ fmt(x.input_tokens) }} in · {{ fmt(x.output_tokens) }} out</div> }</div>
+    <div class="tile eng-card"><div class="th"><span class="ti c3"><eng-icon name="users" [size]="17" /></span><span>Active users</span></div><div class="tv">{{ t() ? t()!.active_users : '–' }}</div>@if (t(); as x) { <div class="ts">of {{ x.users }} known to Engismart</div> }</div>
+    <div class="tile eng-card"><div class="th"><span class="ti c4"><eng-icon name="search" [size]="17" /></span><span>Not found answers</span></div><div class="tv">{{ t() ? t()!.not_found : '–' }}</div>@if (t(); as x) { @if (x.questions) { <div class="ts">{{ ((100 * x.not_found) / x.questions).toFixed(0) }}% of questions: content gaps</div> } }</div>
+  </div>
+
+  @if (usage()?.daily?.length) {
+    <section class="eng-card day"><div class="dh">Questions per day</div>
+      <div class="bars">@for (d of usage()!.daily; track d.date) { <div class="b" [title]="d.date + ': ' + d.questions + ' questions, ' + fmt(d.tokens) + ' tokens'"><span [style.height.%]="(d.questions / maxDay()) * 100"></span></div> }</div></section>
+  }
+
+  <section class="eng-card ppl">
+    <div class="ph"><eng-icon name="users" [size]="18" /><h2>People</h2><span class="n">{{ users()?.length ?? 0 }}</span>
+      <button type="button" class="eng-btn primary" (click)="finding.set(true)"><eng-icon name="plus" [size]="15" /> Give someone domain access</button></div>
+    <p class="note"><eng-icon name="info" [size]="14" /> Accounts, groups and roles are managed in the platform. Here you see who uses Engismart and limit the domains a person may ask about.</p>
+    @if (error(); as e) { <div class="err">{{ e }}</div> }
+    @if (!users()) { <div class="spin"><eng-icon name="loader" [size]="22" [spin]="true" /></div> }
+    @else {
+      <div class="tw eng-scroll"><table class="eng-table">
+        <thead><tr><th>Person</th><th>Role</th><th>Domain access</th><th>Questions</th><th>Tokens</th><th>Last active</th><th></th></tr></thead>
+        <tbody>@for (u of users(); track u.id) {
+          @let s = usageById().get(u.id);
+          <tr [class.off]="!u.is_active">
+            <td><div class="who"><span class="av">{{ initials(u.display_name) }}</span><div><div class="dn">{{ u.display_name }}@if (u.id === session.me()?.id) { <em>(you)</em> }</div><div class="un">@{{ u.username }}@if (!u.is_active) { <b> · disabled</b> }</div></div></div></td>
+            <td><span class="rl" [class]="'rl ' + role[u.role].cls" [title]="role[u.role].text">{{ role[u.role].label }}</span></td>
+            <td>@if (u.role !== 'user') { <span class="eng-muted eng-small">All domains + confidential</span> } @else if (!u.domains.length) { <span class="eng-muted eng-small">All domains</span> } @else { <div class="dc">@for (d of u.domains; track d) { <eng-domain-chip [id]="d" /> }</div> }</td>
+            <td class="b1">{{ s?.questions ?? 0 }}</td>
+            <td>@if (s) { <span class="b1">{{ fmt(s.input_tokens + s.output_tokens) }}</span> <span class="eng-muted eng-small">({{ fmt(s.input_tokens) }} / {{ fmt(s.output_tokens) }})</span> } @else { 0 }</td>
+            <td class="eng-muted eng-small nw">{{ s?.last_active ? ago(s!.last_active!) : u.last_active ? ago(u.last_active) : 'never' }}</td>
+            <td class="act"><button type="button" class="eng-icon-btn" (click)="edit(u)" title="Limit domains" aria-label="Limit domains"><eng-icon name="edit" [size]="15" /></button></td>
+          </tr>
+        } @empty { <tr><td colspan="7" class="empty">Nobody has used Engismart yet.</td></tr> }</tbody>
+      </table></div>
+    }
+  </section>
+</div></div>
+
+@if (editing(); as u) {
+  <div class="eng-veil eng-modal-open" (click)="editing.set(null)"></div>
+  <div class="eng-modal" style="--eng-modal-w: 520px; top: 8vh;">
+    <div class="dh2"><h3>Domain access</h3><button type="button" class="eng-icon-btn" (click)="editing.set(null)" aria-label="Close"><eng-icon name="x" [size]="18" /></button></div>
+    <div class="db">
+      <div class="who"><span class="av">{{ initials(u.display_name) }}</span><div><div class="dn">{{ u.display_name }}</div><div class="un">@{{ u.username }} · {{ role[u.role].label }}</div></div></div>
+      @if (u.role !== 'user') { <p class="info">{{ role[u.role].text }} The domain setting only limits people with the role "User".</p> }
+      <div class="lab">Domains this person may ask about <span>(none selected = all)</span></div>
+      <div class="chips">@for (d of picks(); track d.id) { <button type="button" [class.on]="allowed().includes(d.id)" (click)="toggleDomain(d.id)"><i [style.background]="dv(d.id).color"></i>{{ d.name }}@if (allowed().includes(d.id)) { <eng-icon name="check" [size]="14" /> }</button> }</div>
+      <p class="info">Roles are changed in the platform (application roles <code>engismart_developer</code>, <code>engismart_superuser</code>, <code>engismart_user</code>).</p>
+      @if (dialogError(); as e) { <div class="err">{{ e }}</div> }
+    </div>
+    <div class="df"><button type="button" class="eng-btn" (click)="editing.set(null)">Cancel</button><button type="button" class="eng-btn primary" (click)="save()" [disabled]="saving()">@if (saving()) { <eng-icon name="loader" [size]="14" [spin]="true" /> } Save</button></div>
+  </div>
+}
+
+@if (finding()) {
+  <div class="eng-veil eng-modal-open" (click)="finding.set(false)"></div>
+  <div class="eng-modal" style="--eng-modal-w: 520px; top: 8vh;">
+    <div class="dh2"><h3>Give someone domain access</h3><button type="button" class="eng-icon-btn" (click)="finding.set(false)" aria-label="Close"><eng-icon name="x" [size]="18" /></button></div>
+    <div class="db">
+      <p class="info">Find a platform user by name. They must already have the Engismart application in the platform.</p>
+      <div class="sr"><input class="eng-input" [ngModel]="q()" (ngModelChange)="q.set($event)" (keydown.enter)="search()" placeholder="Name or username" aria-label="Search platform users" /><button type="button" class="eng-btn primary" (click)="search()" [disabled]="searching() || q().trim().length < 2">@if (searching()) { <eng-icon name="loader" [size]="14" [spin]="true" /> } Search</button></div>
+      <div class="res">@for (f of found(); track f.id) { <button type="button" (click)="pick(f)"><span class="av">{{ initials(f.display_name) }}</span><span class="dn">{{ f.display_name }}</span><span class="un">@{{ f.username }}</span><span class="rl" [class]="'rl ' + role[f.role].cls">{{ role[f.role].label }}</span></button> }</div>
+    </div>
+  </div>
+}

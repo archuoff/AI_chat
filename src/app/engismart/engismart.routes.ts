@@ -3,10 +3,12 @@ import { CanActivateFn, Router, Routes } from '@angular/router';
 import { SessionService } from './core/session.service';
 
 /** Manage and Users are developer pages; the backend enforces it too, this only hides the way in. */
-const developerOnly: CanActivateFn = async () => {
+const developerOnly: CanActivateFn = async (_route, state) => {
   const session = inject(SessionService);
-  if (session.loading() && !session.me()) await session.load();
-  return session.isDeveloper() ? true : inject(Router).createUrlTree(['/']);
+  const router = inject(Router); // inject() only works before the first await
+  if (!session.me()) await session.load();
+  // send the person to the chat of this same remote (the remote may be mounted under any prefix in the host)
+  return session.isDeveloper() ? true : router.parseUrl(state.url.replace(/\/(manage|users)(?=[/?#]|$).*$/, '/chat'));
 };
 
 export const engismartRoutes: Routes = [

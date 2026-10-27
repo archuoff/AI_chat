@@ -1,0 +1,64 @@
+<div class="dash eng-scroll">
+  <div class="inner">
+    <div class="head">
+      <div><h2>Knowledge library</h2><p>Everything the assistant can answer from, at a glance. Select a document on the left to inspect it.</p></div>
+      <button type="button" class="eng-btn primary" (click)="add.emit()"><eng-icon name="plus" [size]="15" /> Add documents</button>
+    </div>
+
+    <section class="kpis eng-card">
+      @for (k of kpis(); track k.label) { <div class="k"><div class="kl">{{ k.label }}</div><div class="kv">{{ k.value }}</div><div class="kn">{{ k.note }}</div></div> }
+    </section>
+
+    @if (s().attention.length === 0) {
+      <section class="ok eng-card"><eng-icon name="check" [size]="18" /><p><b>Nothing needs attention.</b> <span>Every document was fully captured.</span></p></section>
+    } @else {
+      <section class="warn eng-card">
+        <div class="wh"><eng-icon name="alert" [size]="17" /><b>{{ s().attention.length }} document{{ s().attention.length === 1 ? '' : 's' }} need{{ s().attention.length === 1 ? 's' : '' }} a look</b><span>some values were not stored</span></div>
+        <ul>@for (d of s().attention; track d.doc_id) {
+          <li><button type="button" (click)="openDoc.emit(d.doc_id)"><eng-file-badge [type]="d.file_type" size="sm" /><span class="n">{{ clean(d.file_name) }}</span><b>{{ d.stats.coverage_percent }}% captured</b><eng-icon name="chevron-right" [size]="15" /></button></li>
+        }</ul>
+      </section>
+    }
+
+    @if (pics(); as p) {
+      @if (p.counts.total > 0) {
+        <section class="pics eng-card">
+          <eng-icon [name]="p.job.state === 'running' ? 'loader' : pending() === 0 ? 'image' : p.vision.enabled ? 'sparkles' : 'clock'" [size]="18" [spin]="p.job.state === 'running'" />
+          <div class="pt">
+            <div class="p1">{{ p.job.state === 'running' ? 'Describing pictures… ' + (p.job.done ?? 0) + ' of ' + (p.job.total ?? 0) : pending() ? pending() + ' picture' + (pending() === 1 ? '' : 's') + ' waiting to be described' : p.counts.described + ' pictures described and searchable' }}</div>
+            <div class="p2">{{ p.counts.total }} extracted · {{ p.counts.described }} described · {{ p.counts.skipped }} skipped (icons, logos, duplicates)@if (pending() > 0 && p.job.state !== 'running') { · about {{ kt(p.estimate.input_tokens + p.estimate.output_tokens) }} tokens to describe }</div>
+          </div>
+          @if (pending() > 0 && p.job.state !== 'running') {
+            @if (p.vision.enabled) { <button type="button" class="eng-btn primary sm" (click)="describeAll()" [disabled]="picBusy()"><eng-icon [name]="picBusy() ? 'loader' : 'sparkles'" [size]="13" [spin]="picBusy()" /> Describe all</button> }
+            @else { <span class="eng-small eng-muted">Switches on with the company Azure vision model</span> }
+          }
+        </section>
+      }
+    }
+
+    <div class="two">
+      <section class="eng-card by">
+        <div class="bh"><b>By domain</b><span>Click to filter the list</span></div>
+        <ul>@for (d of s().byDomain; track d.id) {
+          <li><button type="button" [disabled]="!d.files" [title]="d.description" (click)="domainPick.emit(d.id)">
+            <i [style.background]="d.color"></i><span class="dn">{{ d.name }}</span>
+            <span class="bar"><span [style.width.%]="(d.chunks / s().maxChunks) * 100" [style.background]="d.color"></span></span>
+            <span class="df">@if (d.files) { <b>{{ d.files }}</b> file{{ d.files === 1 ? '' : 's' }} } @else { <em>No documents yet</em> }</span></button></li>
+        }</ul>
+      </section>
+      <div class="col">
+        <section class="eng-card pad">
+          <b class="ct">By file type</b>
+          <div class="tbar">@for (t of s().types; track t[0]) { <span [style.width.%]="(t[1] / (docs().length || 1)) * 100" [style.background]="typeColor(t[0])" [title]="t[0] + ': ' + t[1]"></span> }</div>
+          <ul class="tl">@for (t of s().types; track t[0]) { <li><i [style.background]="typeColor(t[0])"></i>{{ t[0] }}<b>{{ t[1] }}</b></li> }</ul>
+        </section>
+        <section class="eng-card">
+          <b class="ct pad2">Recently updated</b>
+          <ul class="rec">@for (d of s().recent; track d.doc_id) {
+            <li><button type="button" (click)="openDoc.emit(d.doc_id)"><eng-file-badge [type]="d.file_type" size="sm" /><span class="n">{{ clean(d.file_name) }}</span>@if (d.confidential) { <eng-icon name="lock" [size]="12" /> }<span class="t">{{ ago(d.ingested_at) }}</span></button></li>
+          }</ul>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>

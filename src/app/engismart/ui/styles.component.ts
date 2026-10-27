@@ -6,6 +6,6 @@ import { ChangeDetectionStrategy, Component, ViewEncapsulation } from '@angular/
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   template: '',
-  styleUrl: './utilities.scss',
+  styleUrls: ['./utilities.scss', './dialog.scss'],
 })
 export class StylesComponent {}

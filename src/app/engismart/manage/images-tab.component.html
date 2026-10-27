@@ -1,0 +1,69 @@
+@if (error(); as e) { <div class="err">{{ e }}</div> }
+@else if (!data()) { <div class="spin"><eng-icon name="loader" [size]="22" [spin]="true" /></div> }
+@else {
+  @let d = data()!;
+  @let c = d.counts;
+  <div class="it">
+    <section class="eng-card top">
+      @if (running()) {
+        <div class="run"><eng-icon name="loader" [size]="18" [spin]="true" /><div class="rt">Describing pictures… {{ job()!.done ?? 0 }} of {{ job()!.total ?? 0 }}</div>
+          <button type="button" class="eng-btn sm" (click)="stop()"><eng-icon name="square" [size]="12" /> Stop</button></div>
+        <div class="bar"><span [style.width.%]="jobPct()"></span></div>
+        <p class="sub">{{ tk(jobTokens()) }} tokens used so far · you can leave this page, it keeps running</p>
+      } @else {
+        <div class="idle">
+          <eng-icon [name]="pending() === 0 ? 'check' : d.vision.enabled ? 'sparkles' : 'clock'" [size]="19" [class]="pending() === 0 ? 'good' : d.vision.enabled ? 'blue' : 'warn'" />
+          <div class="tx">
+            <div class="t1">{{ pending() === 0 ? (c.described ? 'All ' + c.described + ' picture' + (c.described === 1 ? '' : 's') + ' described and searchable' : 'No pictures to describe') : pending() + ' picture' + (pending() === 1 ? '' : 's') + ' waiting to be described' }}</div>
+            <p>{{ pending() > 0 && !d.vision.enabled ? 'They will be described once the company Azure vision model is connected. Nothing is sent to Azure until then.' : pending() > 0 ? 'Uses ' + d.vision.deployment + '. Estimated ' + tk(estTokens()) + ' tokens' + (d.estimate.cost !== null ? ', about ' + d.estimate.cost.toFixed(2) : '') + '.' : 'Descriptions are part of the search: the assistant can find and cite these pictures.' }}{{ c.skipped > 0 ? ' ' + c.skipped + ' skipped (icons, logos, duplicates).' : '' }}</p>
+            @if (pending() > 0 && !d.vision.enabled) { <p class="sm">Estimated {{ tk(estTokens()) }} tokens to describe them all.</p> }
+          </div>
+          @if (pending() > 0) {
+            <button type="button" class="eng-btn primary" (click)="describe()" [disabled]="!d.vision.enabled || busy()" [title]="d.vision.enabled ? '' : 'Set AZURE_OPENAI_VISION_DEPLOYMENT (company Azure resource) to switch this on'">
+              <eng-icon [name]="busy() ? 'loader' : d.vision.enabled ? 'sparkles' : 'clock'" [size]="14" [spin]="busy()" />{{ d.vision.enabled ? 'Describe ' + pending() : 'Waiting for vision model' }}</button>
+          }
+        </div>
+      }
+      @if (job(); as j) {
+        @if (j.state === 'finished' || j.state === 'cancelled') {
+          <p class="last">Last run {{ j.state === 'cancelled' ? 'stopped' : 'finished' }}: {{ j.described ?? 0 }} described, {{ j.decorative ?? 0 }} decorative, {{ j.failed ?? 0 }} failed · {{ tk(jobTokens()) }} tokens</p>
+        }
+      }
+    </section>
+
+    <div class="fl">@for (f of filters(); track f) {
+      <button type="button" [class.on]="filter() === f" (click)="filter.set(f)">@if (f !== 'all') { <i [style.background]="st[f].color"></i> }{{ f === 'all' ? 'All' : st[f].label }}<em>{{ count(f) }}</em></button>
+    }</div>
+
+    <div class="gr eng-scroll">
+      @if (!shown().length) { <p class="none">No pictures here.</p> }
+      @for (g of groups(); track g.sheet) {
+        <div class="grp">
+          @if (g.sheet) { <div class="gh"><b>{{ g.sheet }}</b><span>{{ g.imgs.length }}</span></div> }
+          <div class="cards">@for (img of g.imgs; track img.id) {
+            <button type="button" class="card" [class.on]="open()?.id === img.id" (click)="open.set(img)" [title]="img.reason">
+              <div class="th">@if (img.status === 'unsupported') { <span class="cb">Can't be read</span> } @else { <eng-auth-image [id]="img.id" [alt]="where(img.location)" [class.sk]="img.status === 'skipped'" /> }</div>
+              <div class="cap"><i [style.background]="st[img.status].color"></i><span [title]="label(img)">{{ label(img) }}</span></div>
+            </button>
+          }</div>
+        </div>
+      }
+    </div>
+
+    @if (open(); as o) {
+      <div class="eng-veil eng-modal-open" (click)="open.set(null)"></div>
+      <div class="eng-modal" style="--eng-modal-w: 880px; top: 5vh; overflow: hidden;">
+        <div class="mh"><i [style.background]="st[o.status].color"></i>
+          <div class="mt"><div class="m1">{{ where(o.location) }}</div><div class="m2">{{ st[o.status].label }}{{ o.reason ? ' · ' + o.reason : '' }} · {{ o.width }}×{{ o.height }}px</div></div>
+          @if (o.status === 'waiting' || o.status === 'failed') { <button type="button" class="eng-btn sm" (click)="setIncluded(o, false)"><eng-icon name="x" [size]="14" /> Skip this picture</button> }
+          @if (o.status === 'skipped') { <button type="button" class="eng-btn sm" (click)="setIncluded(o, true)"><eng-icon name="eye" [size]="14" /> Include for describing</button> }
+          <button type="button" class="eng-icon-btn" (click)="open.set(null)" aria-label="Close picture"><eng-icon name="x" [size]="18" /></button></div>
+        <div class="mb">
+          <div class="pic">@if (o.status !== 'unsupported') { <eng-auth-image [id]="o.id" [thumb]="false" [alt]="where(o.location)" /> }</div>
+          <div class="txt"><div><div class="k">Description</div><p>{{ o.description || ('Not described yet' + (o.status === 'waiting' ? ': waiting for the vision model.' : '.')) }}</p></div>
+            @if (o.context) { <div><div class="k">Around it in the document</div><p class="ctx">{{ o.context }}</p></div> }</div>
+        </div>
+      </div>
+    }
+  </div>
+}

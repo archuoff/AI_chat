@@ -1,0 +1,31 @@
+@let it = item();
+@let ck = c();
+<div class="d">
+  @if (live().length || hidden().length) {
+    <div class="dup"><eng-icon name="alert" [size]="14" /><div>
+      @for (e of live(); track e.doc_id) { <p>This exact file is already in the library as <b>{{ e.file_name }}</b> ({{ name(e.domain) }}).</p> }
+      @for (e of hidden(); track e.doc_id) { <p>This exact file is the older version <b>{{ e.file_name }}</b>, replaced by a newer one. Add it again only if that is intended.</p> }
+      <label class="chk"><input type="checkbox" [checked]="it.allowDuplicate" (change)="change.emit({ allowDuplicate: $any($event.target).checked })" /> Add anyway</label></div></div>
+  }
+  @if (ck.suggestions.length) {
+    <div><div class="sl"><eng-icon name="sparkles" [size]="12" /> Similar documents already in the library</div>
+      <div class="sg">@for (s of ck.suggestions; track s.doc_id) {
+        <button type="button" [class.on]="it.intent === 'update' && it.replaces === s.doc_id" (click)="change.emit({ intent: 'update', replaces: s.doc_id })">
+          <span class="lb" [class.likely]="s.label === 'likely'">{{ s.label === 'likely' ? 'Likely update' : 'Related' }}</span>
+          <span class="tx"><span class="n">{{ s.file_name }}</span><span class="w">{{ name(s.domain) }} · {{ why(s.reasons) }}</span></span></button>
+      }</div></div>
+  }
+  <div class="rad">
+    <label><input type="radio" [name]="'intent-' + it.id" [checked]="it.intent === 'new'" (change)="change.emit({ intent: 'new', replaces: '' })" /> New document</label>
+    <div class="upd"><label><input type="radio" [name]="'intent-' + it.id" [checked]="it.intent === 'update'" (change)="change.emit({ intent: 'update' })" /> Update of</label>
+      <select [value]="it.replaces" (change)="change.emit({ intent: 'update', replaces: $any($event.target).value })" aria-label="Document this file updates">
+        <option value="" [selected]="!it.replaces">Choose a document…</option>
+        @if (ck.suggestions.length) { <optgroup label="Suggested">@for (s of ck.suggestions; track s.doc_id) { <option [value]="s.doc_id" [selected]="it.replaces === s.doc_id">{{ s.file_name }} · {{ name(s.domain) }}</option> }</optgroup> }
+        <optgroup label="All documents">@for (o of others(); track o.doc_id) { <option [value]="o.doc_id" [selected]="it.replaces === o.doc_id">{{ o.file_name }} · {{ name(o.domain) }}</option> }</optgroup>
+      </select></div>
+    @if (it.intent === 'update') { <p class="hint">The old version is hidden from the assistant, not deleted. You can restore it any time.</p> }
+  </div>
+  @if (partial(); as p) { <p class="part"><eng-icon name="alert" [size]="14" /> {{ p }}</p> }
+  @if (ck.unchecked > 0) { <p class="un">{{ ck.unchecked }} document{{ ck.unchecked === 1 ? '' : 's' }} could only be compared by name (content data not built yet).</p> }
+  @if (it.error || stop()) { <p class="st" [class.bad]="it.error">{{ it.error ?? stop() }}</p> }
+</div>

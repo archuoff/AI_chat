@@ -1,0 +1,27 @@
+<div class="g eng-scroll">
+  <table>
+    <thead><tr><th class="corner"></th>@for (c of cols(); track c) { <th class="ch">{{ letter(c) }}</th> }</tr></thead>
+    <tbody>
+      @for (line of lines(); track $index) {
+        @if (line.kind === 'gap') {
+          <tr><th class="rh gap">⋮</th><td [attr.colspan]="cols().length" class="gaptx">rows {{ line.from }}–{{ line.to }} empty</td></tr>
+        } @else {
+          <tr>
+            <th class="rh">{{ line.r }}</th>
+            @for (g of line.cells; track g.key) {
+              <td [attr.rowspan]="g.rs" [attr.colspan]="g.cs" [class]="'cell ' + cls(g.cell)" [class.has]="!!g.cell" [class.dim]="dim(line.r, g.c)" [class.sel]="selected() === g.address"
+                  [title]="g.cell ? g.address + ' · ' + meta(g.cell)?.label : g.address" (click)="click(g)">
+                @if (g.pics.length) {
+                  <div class="pics">@for (p of g.pics; track p.id) {
+                    <button type="button" class="pic" [class.on]="activePicture() === p.id" (click)="clickPic($event, p)" [title]="'Picture in ' + g.address + ': click for details'"><eng-auth-image [id]="p.id" [alt]="'Picture in ' + g.address" /></button>
+                  }</div>
+                }
+                @if (g.label !== undefined) { <div class="v">{{ g.label }}</div> }
+              </td>
+            }
+          </tr>
+        }
+      }
+    </tbody>
+  </table>
+</div>

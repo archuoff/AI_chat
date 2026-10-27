@@ -1,0 +1,92 @@
+@let d = doc();
+<div class="dd">
+  <div class="hd">
+    <div class="top">
+      <eng-file-badge [type]="d.file_type" size="lg" />
+      <div class="ti"><h2 [title]="d.file_name">{{ clean(d.file_name) }}</h2><p>{{ info() }}</p></div>
+      <div class="acts">
+        <div class="rel">
+          <button type="button" class="eng-btn sm dom" (click)="menu.set(menu() === 'domain' ? null : 'domain')" title="Domain this document belongs to">
+            <i [style.background]="dv().color"></i>{{ dv().label }}
+            <eng-icon [name]="busy() === 'domain' || busy() === 'suggest' ? 'loader' : 'chevron-down'" [size]="14" [spin]="busy() === 'domain' || busy() === 'suggest'" />
+          </button>
+          @if (menu() === 'domain') {
+            <div class="veil" (click)="menu.set(null)"></div>
+            <div class="menu">
+              <div class="mh">Move to</div>
+              @for (x of domains(); track x.id) {
+                <button type="button" [class.cur]="x.id === d.domain" (click)="x.id !== d.domain && setDomain(x.id)"><i [style.background]="dvOf(x.id).color"></i><span>{{ x.name }}</span>@if (x.id === d.domain) { <eng-icon name="check" [size]="14" /> }</button>
+              }
+              <hr />
+              <button type="button" class="ai" (click)="suggest()"><eng-icon name="sparkles" [size]="14" /> Suggest with AI</button>
+            </div>
+          }
+        </div>
+        <button type="button" class="eng-btn sm acc" [class.conf]="d.confidential" (click)="toggleAccess()"
+                [title]="d.confidential ? 'Only super users and developers can see this. Click to make it visible to all users.' : 'Visible to all users with access to this domain. Click to mark confidential.'">
+          <eng-icon [name]="busy() === 'access' ? 'loader' : d.confidential ? 'lock' : 'unlock'" [size]="14" [spin]="busy() === 'access'" />{{ d.confidential ? 'Confidential' : 'Standard' }}
+        </button>
+        <div class="rel">
+          <button type="button" class="eng-btn sm sq" (click)="menu.set(menu() === 'more' ? null : 'more')" aria-label="More actions" title="More actions"><eng-icon [name]="busy() === 'reprocess' || busy() === 'delete' ? 'loader' : 'more'" [size]="16" [spin]="busy() === 'reprocess' || busy() === 'delete'" /></button>
+          @if (menu() === 'more') {
+            <div class="veil" (click)="menu.set(null)"></div>
+            <div class="menu w">
+              <button type="button" (click)="reprocess()"><eng-icon name="refresh" [size]="14" /> Re-process document</button>
+              <button type="button" class="del" (click)="remove()"><eng-icon name="trash" [size]="14" /> Remove document</button>
+            </div>
+          }
+        </div>
+        <span class="sep"></span>
+        <button type="button" class="eng-icon-btn" (click)="closed.emit()" aria-label="Close document" title="Close (back to library overview)"><eng-icon name="x" [size]="17" /></button>
+      </div>
+    </div>
+
+    @if (d.superseded || d.replaces) {
+      <div class="notes">
+        @if (d.superseded) {
+          <div class="n1"><eng-icon name="clock" [size]="15" /><div>Replaced by
+            @if (replacedBy(); as r) { <button type="button" class="lnk" (click)="openDoc.emit(d.replaced_by!)">{{ clean(r.file_name) }}</button> } @else { a newer version }{{ replacedAgo() }}@if (d.replaced_by_user) { by {{ d.replaced_by_user }}}. The assistant does not use this version.</div>
+            <button type="button" class="eng-btn sm" (click)="restore()" [disabled]="busy() === 'restore'">@if (busy() === 'restore') { <eng-icon name="loader" [size]="13" [spin]="true" /> } Restore this version</button></div>
+        }
+        @if (d.replaces) {
+          <div class="n2"><eng-icon name="clock" [size]="14" /><span>Updated version of
+            @if (replacesDoc(); as r) { <button type="button" class="lnk" (click)="openDoc.emit(d.replaces!)">{{ clean(r.file_name) }}</button> } @else { an older document }, which is hidden from the assistant.</span></div>
+        }
+      </div>
+    }
+
+    @if (suggestion(); as sg) {
+      <div class="sug"><eng-icon name="sparkles" [size]="15" />
+        <div class="st"><span>AI suggests </span><b>{{ dvOf(sg.domain).label }}</b><span> · {{ pct(sg.confidence) }}% sure. {{ sg.reason }}</span></div>
+        @if (sg.domain !== d.domain) { <button type="button" class="eng-btn primary sm" (click)="setDomain(sg.domain)">Move there</button> }
+        @else { <span class="there"><eng-icon name="check" [size]="15" /> Already there</span> }
+        <button type="button" class="eng-icon-btn" (click)="suggestion.set(null)" aria-label="Dismiss"><eng-icon name="x" [size]="15" /></button>
+      </div>
+    }
+
+    <div class="tabs">
+      @for (t of tabs(); track t.id) {
+        <button type="button" [class.on]="tab() === t.id" (click)="tab.set(t.id)">{{ t.label }}@if (t.count !== undefined) { <span class="c">{{ t.count }}</span> }</button>
+      }
+    </div>
+  </div>
+
+  <div class="body">
+    @switch (tab()) {
+      @case ('overview') { <eng-overview-tab [doc]="d" (openSheet)="openSheet($event)" /> }
+      @case ('preview') { <eng-sheet-preview [preview]="preview()" [loading]="previewLoading()" [error]="previewError()" [draft]="draft()" (draftChange)="draft.set($event)" (sheetChange)="sheet.set($event)" /> }
+      @case ('records') { <eng-records-tab [preview]="preview()" (sheetChange)="sheet.set($event)" /> }
+      @case ('images') { <eng-images-tab [doc]="d" (changed)="changed.emit()" /> }
+      @case ('chunks') { <eng-chunks-tab [doc]="d" /> }
+    }
+  </div>
+
+  @if (pending()) {
+    <div class="pend"><span class="pulse"></span>
+      <span class="pt"><b>{{ pendingCount() || 'Some' }}</b> correction{{ pendingCount() === 1 ? '' : 's' }} not applied yet. Applying re-reads the file with your changes.</span>
+      <button type="button" class="dis" (click)="discard()">Discard</button>
+      <button type="button" class="app" (click)="apply()" [disabled]="busy() === 'apply'">@if (busy() === 'apply') { <eng-icon name="loader" [size]="14" [spin]="true" /> } Apply changes</button>
+    </div>
+  }
+  @if (toast(); as t) { <div class="toast" [class.err]="t.kind === 'err'"><eng-icon [name]="t.kind === 'ok' ? 'check' : 'x'" [size]="16" />{{ t.text }}</div> }
+</div>

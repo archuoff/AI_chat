@@ -1,0 +1,74 @@
+<div class="m">
+  <section class="lib">
+    <div class="lh">
+      <div class="row">
+        <h2>Documents</h2>@if (docs()) { <span class="eng-muted eng-small">{{ live().length }}</span> }
+        <button type="button" class="eng-btn primary sm add" (click)="uploadOpen.set(true)"><eng-icon name="plus" [size]="15" /> Add</button>
+      </div>
+      <div class="search"><eng-icon name="search" [size]="15" /><input class="eng-input" [ngModel]="q()" (ngModelChange)="q.set($event)" placeholder="Search documents" aria-label="Search documents" /></div>
+      @if (replacedCount() > 0) {
+        <label class="chk"><input type="checkbox" [ngModel]="showReplaced()" (ngModelChange)="showReplaced.set($event)" /> Show replaced versions ({{ replacedCount() }})</label>
+      }
+      @if (domainFilter(); as f) {
+        <div class="filter">Showing <span class="pill"><i [style.background]="dv(f).color"></i>{{ dv(f).label }}<button type="button" (click)="domainFilter.set(null)" aria-label="Show all domains"><eng-icon name="x" [size]="12" /></button></span></div>
+      }
+    </div>
+
+    @if (checked().size > 0) {
+      <div class="bulk">
+        <div class="brow"><eng-icon name="arrow-right" [size]="14" /> Move <b>{{ checked().size }}</b> file{{ checked().size === 1 ? '' : 's' }} to
+          @if (moving()) { <eng-icon name="loader" [size]="14" [spin]="true" /> }
+          <button type="button" class="bx" (click)="checked.set(emptySet)" aria-label="Clear selection"><eng-icon name="x" [size]="14" /></button></div>
+        <div class="bchips">@for (d of domains(); track d.id) { <button type="button" [disabled]="moving()" (click)="bulkMove(d.id)">{{ d.name }}</button> }</div>
+      </div>
+    }
+
+    <div class="list eng-scroll">
+      @if (loadError(); as err) { <p class="err"><eng-icon name="alert" [size]="14" /> {{ err }} <button type="button" class="eng-btn sm" (click)="refresh()">Retry</button></p> }
+      @if (!docs()) { <div class="spin"><eng-icon name="loader" [size]="22" [spin]="true" /></div> }
+      @else if (shown().length === 0 && !loadError()) { <p class="none">{{ q().trim() ? 'No documents match your search.' : 'No documents yet.' }}</p> }
+      @for (g of groups(); track g.id) {
+        <div class="grp">
+          <div class="gh"><i [style.background]="dv(g.id).color"></i><span>{{ dv(g.id).label }}</span><em>{{ g.ds.length }}</em></div>
+          @for (d of g.ds; track d.doc_id) {
+            <div class="doc" [class.on]="d.doc_id === selectedId()" role="button" tabindex="0" (click)="open(d.doc_id)" (keydown.enter)="open(d.doc_id)">
+              @if (d.doc_id === selectedId()) { <span class="bar"></span> }
+              <span class="bw">
+                <eng-file-badge [type]="d.file_type" size="sm" />
+                <input type="checkbox" [class.vis]="checked().size > 0" [checked]="checked().has(d.doc_id)" (click)="$event.stopPropagation()" (change)="onCheck(d.doc_id, $event)" [attr.aria-label]="'Select ' + d.file_name" title="Select to move several files at once" />
+              </span>
+              <div class="tx">
+                <div class="nm" [title]="d.file_name">{{ clean(d.file_name) }}</div>
+                <div class="sub">{{ ftype(d.file_type) }} · {{ d.records ? plural(d.records, 'record') : plural(d.chunks, 'chunk') }}@if (d.superseded) { <b class="rep"> · replaced</b> }</div>
+              </div>
+              @if (d.superseded) { <span title="Replaced by a newer version: hidden from the assistant" class="ic amber"><eng-icon name="clock" [size]="13" /></span> }
+              @if (d.confidential) { <span title="Confidential: super users and developers only" class="ic red"><eng-icon name="lock" [size]="13" /></span> }
+              @if (needsReview(d)) { <span class="dot" [title]="d.stats.coverage_percent + '% of the data captured — worth a look'"></span> }
+            </div>
+          }
+        </div>
+      }
+      @if (emptyDomains().length) { <p class="empty">No documents yet in @for (d of emptyDomains(); track d.id; let last = $last) { {{ d.name }}{{ last ? '.' : ',' }} }</p> }
+    </div>
+  </section>
+
+  <section class="detail">
+    @if (selected(); as sel) {
+      <eng-doc-detail [doc]="sel" [domains]="domains()" [related]="related" (openDoc)="selectedId.set($event)" (changed)="refresh()" (deleted)="deleted()" (closed)="selectedId.set(null)" />
+    } @else if (docs()) {
+      <eng-library-dashboard [docs]="live()" [domains]="domains()" (openDoc)="open($event)" (domainPick)="domainFilter.set($event)" (add)="uploadOpen.set(true)" />
+    } @else { <div class="spin full"><eng-icon name="loader" [size]="22" [spin]="true" /></div> }
+  </section>
+
+  @if (mobileDetail() && selected(); as sel) {
+    <div class="mobile">
+      <button type="button" class="back" (click)="mobileDetail.set(false)"><eng-icon name="x" [size]="15" /> Back to documents</button>
+      <div class="mbody"><eng-doc-detail [doc]="sel" [domains]="domains()" [related]="related" (openDoc)="selectedId.set($event)" (changed)="refresh()" (deleted)="deleted()" (closed)="selectedId.set(null)" /></div>
+    </div>
+  }
+
+  @if (uploadOpen()) {
+    <div class="eng-veil eng-modal-open" (click)="uploadOpen.set(false)"></div>
+    <div class="eng-modal"><eng-upload-panel [domains]="domains()" (closed)="uploadOpen.set(false)" (done)="refresh()" /></div>
+  }
+</div>

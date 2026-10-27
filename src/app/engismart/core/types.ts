@@ -55,7 +55,7 @@ export type DocumentInfo = {
   records: number
   text_blocks: number
   stats: DocStats
-  warnings: string[]
+  warnings?: string[]
   chunks: number
   meta: Record<string, unknown>
   ingested_at: string

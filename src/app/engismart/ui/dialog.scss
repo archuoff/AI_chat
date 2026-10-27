@@ -1,0 +1,6 @@
+/* Shared dialog styles (overlay + centred box). Not encapsulated; every selector is under .eng-root. */
+.eng-root {
+  .eng-veil { position: fixed; inset: 0; z-index: 1000; background: rgba(0, 10, 40, 0.5); }
+  .eng-modal { position: fixed; z-index: 1001; left: 12px; right: 12px; top: 6vh; margin: 0 auto; max-width: var(--eng-modal-w, 680px); max-height: 88vh; overflow-y: auto;
+    border-radius: 18px; background: #fff; box-shadow: var(--eng-shadow-lift); display: flex; flex-direction: column; }
+}

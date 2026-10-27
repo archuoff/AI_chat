@@ -1,0 +1,38 @@
+@let d = doc();
+<div class="ov eng-scroll"><div class="in">
+  <section class="eng-card">
+    <div class="vd">
+      <eng-icon [name]="ok() ? 'check' : 'alert'" [size]="20" [class]="ok() ? 'good' : 'warn'" />
+      <div><div class="vt">{{ ok() ? (isExcel() ? 'All data captured' : 'Processed and searchable') : toReview() + ' sheet' + (toReview() === 1 ? '' : 's') + ' need' + (toReview() === 1 ? 's' : '') + ' a look' }}</div>
+        <p>{{ ok() ? 'Everything readable in this document is stored, and the assistant can answer from it.' : 'Some values were not stored. Open the sheet preview to see which cells and adjust the table settings.' }}</p></div>
+    </div>
+    <dl class="stats">@for (s of stats(); track s[0]) { <div><dt>{{ s[0] }}</dt><dd>{{ s[1] }}</dd></div> }</dl>
+  </section>
+
+  @if (corrections().length) {
+    <section class="corr"><eng-icon name="edit" [size]="16" /><div><b>Your corrections</b><div>{{ corrections().join(' · ') }}</div></div></section>
+  }
+
+  @if (isExcel() && sheets().length) {
+    <section class="eng-card sh">
+      <div class="sht"><b>Sheets</b><span>Click a sheet to preview it</span></div>
+      <ul>@for (e of sheets(); track e[0]) {
+        <li><button type="button" (click)="openSheet.emit(e[0])"><span class="sn">{{ e[0] }}</span><span class="sr">{{ e[1].records }} record{{ e[1].records === 1 ? '' : 's' }}</span>
+          <span class="ss">@if (e[1].skipped) { <span class="mut">Excluded</span> } @else if (complete(e[1].coverage.percent)) { <span class="done"><eng-icon name="check" [size]="13" /> Complete</span> } @else { <span class="part"><i></i>{{ e[1].coverage.percent }}% captured</span> }</span>
+          <eng-icon name="chevron-right" [size]="15" /></button></li>
+      }</ul>
+    </section>
+  }
+
+  @if (d.warnings?.length) {
+    <section class="eng-card notes"><b>Processing notes</b><ul>@for (w of d.warnings!; track w) { <li>{{ w }}</li> }</ul></section>
+  }
+
+  <details class="eng-card det"><summary><eng-icon name="chevron-right" [size]="14" /> Details</summary>
+    <dl>
+      @for (m of meta(); track m.k) { <div><dt>{{ m.k }}</dt><dd>{{ m.v }}</dd></div> }
+      <div><dt>Embedding model</dt><dd>{{ d.embedding_model ?? '–' }}</dd></div>
+      <div><dt>Content hash</dt><dd class="mono" [title]="d.content_hash">{{ d.content_hash.slice(0, 16) }}…</dd></div>
+    </dl>
+  </details>
+</div></div>

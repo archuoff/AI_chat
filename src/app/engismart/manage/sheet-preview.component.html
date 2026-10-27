@@ -1,0 +1,38 @@
+@if (error(); as e) { <div class="err">{{ e }}</div> }
+@else if (!preview()) { <div class="spin"><eng-icon name="loader" [size]="22" [spin]="true" /></div> }
+@else {
+  @let p = preview()!;
+  @let sheet = p.sheet;
+  @if (expanded()) { <div class="veil eng-modal-open" (click)="expanded.set(false)"></div> }
+  <div class="sp" [class.full]="expanded()">
+    @if (expanded()) { <div class="fh"><div class="fn">{{ p.file_name }}</div><div class="fs">Sheet preview · press Esc to close</div></div> }
+    <div class="bar">
+      <div class="tabs"><eng-sheet-tabs [preview]="p" (sheetChange)="changeSheet($event)" /></div>
+      @if (pictures().length) { <button type="button" class="tg" [class.on]="showPictures()" (click)="showPictures.set(!showPictures())" [attr.aria-pressed]="showPictures()" title="Show the pictures in their cells"><eng-icon name="image" [size]="14" /> Pictures {{ pictures().length }}</button> }
+      <button type="button" class="tg" [class.dark]="expanded()" (click)="expanded.set(!expanded())" [title]="expanded() ? 'Exit full screen (Esc)' : 'Full screen'" [attr.aria-label]="expanded() ? 'Exit full screen' : 'Full screen'"><eng-icon [name]="expanded() ? 'minus' : 'panel'" [size]="14" />@if (expanded()) { Close }</button>
+    </div>
+    <div class="legend">
+      @for (s of legend(); track s) { <span class="lg" [title]="meta[s].explain"><i [class]="'dot st-' + s"></i>{{ meta[s].label }}<em>{{ counts()[s] }}</em></span> }
+      @if (loading()) { <eng-icon name="loader" [size]="15" [spin]="true" /> }
+      @if (sheet.truncated) { <span class="trunc">Showing {{ sheet.shown_rows }} of {{ sheet.max_row }} rows · {{ sheet.shown_cols }} of {{ sheet.max_col }} columns</span> }
+    </div>
+    <div class="grid">
+      <div class="main">
+        <div class="gw"><eng-sheet-grid [sheet]="sheet" [activeTable]="activeTable()" [selected]="selected()" [pictures]="pictures()" [showPictures]="showPictures()" [activePicture]="pictureId()" (select)="selected.set($event)" (pick)="pictureId.set($event)" /></div>
+        <div class="info eng-card">
+          @if (selCell(); as c) {
+            <div class="ci"><span class="addr">{{ selected() }}</span><div class="cb"><div class="cr"><i [class]="'dot st-' + c.s"></i><b>{{ meta[c.s].label }}</b><span>{{ meta[c.s].explain }}</span></div>
+              <p>{{ c.v }}@if (c.full) { <span class="sh"> (shortened in preview)</span> }</p></div></div>
+          } @else { <p class="hint"><eng-icon name="search" [size]="15" /> Click a cell to see how it was read.</p> }
+        </div>
+      </div>
+      <aside class="side eng-scroll">
+        @if (picture(); as pic) { <eng-picture-card [picture]="pic" (closed)="pictureId.set(null)" /> }
+        <eng-sheet-card [sheet]="sheet" [included]="sheetIncluded()" (pick)="selected.set($event)" (includedChange)="setSheetIncluded($event)" />
+        @for (t of sheet.tables; track t.id; let i = $index) {
+          <eng-table-card [table]="t" [index]="i + 1" [draft]="draft().tables?.[t.id]" [active]="activeTable() === t.id" (hover)="activeTable.set($event ? t.id : null)" (change)="setTable(t.id, $event)" />
+        }
+      </aside>
+    </div>
+  </div>
+}

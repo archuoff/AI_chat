@@ -1,0 +1,71 @@
+<section class="up">
+  <div class="hd"><div><h2>Add documents</h2><p>The assistant can answer from them as soon as processing finishes.</p></div><button type="button" class="eng-icon-btn" (click)="closed.emit()" aria-label="Close"><eng-icon name="x" [size]="18" /></button></div>
+  <div class="bd">
+    <div><div class="st"><span class="num">1</span> Choose a domain</div>
+      <div class="chips">@for (d of domains(); track d.id) {
+        <button type="button" [class.on]="domain() === d.id" (click)="domain.set(d.id)"><i [style.background]="dv(d.id).color"></i>{{ d.name }}@if (domain() === d.id) { <eng-icon name="check" [size]="14" /> }</button>
+      }</div></div>
+
+    <div><div class="st"><span class="num">2</span> Add files</div>
+      <div class="drop" [class.drag]="drag()" (dragover)="onDrag($event)" (dragleave)="drag.set(false)" (drop)="onDrop($event)" (click)="fileInput()?.nativeElement?.click()" role="button" tabindex="0" (keydown.enter)="fileInput()?.nativeElement?.click()">
+        <div class="ic"><eng-icon name="upload" [size]="22" /></div>
+        <div><p class="p1">Drop files here or <span>browse</span></p><p class="p2">Excel, PDF, Word, PowerPoint, CSV or text</p></div>
+        <input #files type="file" multiple [accept]="accept" hidden (change)="pick($event)" />
+      </div>
+      @if (items().length) {
+        <div class="files">@for (it of items(); track it.id) {
+          <div class="f"><div class="fr">
+            <eng-file-badge [type]="ext(it.file.name)" size="sm" />
+            <div class="ft"><div class="fn">{{ it.file.name }}</div>
+              <div class="fs" [class.bad]="it.result?.status === 'failed' || it.state === 'unreadable'">
+                @switch (it.state) {
+                  @case ('queued') { {{ size(it.file.size) }} · waiting to be checked }
+                  @case ('checking') { Reading the file and looking for similar documents… }
+                  @case ('checked') { {{ size(it.file.size) }} }
+                  @case ('unreadable') { {{ it.error }} }
+                  @case ('uploading') { Processing… }
+                }
+                @if (it.result; as r) {
+                  @if (r.status === 'indexed') { {{ r.replaced ? 'Updated' : 'Added' }} · {{ r.records ? r.records + ' records' : r.chunks + ' chunks' }} · {{ r.seconds }}s }
+                  @if (r.status === 'skipped') { Already in the library, unchanged }
+                  @if (r.status === 'reclassified') { Already in the library, moved to this domain }
+                  @if (r.status === 'failed') { {{ r.error }} }
+                }
+              </div></div>
+            @if (removable(it)) { <button type="button" class="eng-icon-btn sm" (click)="remove(it.id)" aria-label="Remove"><eng-icon name="x" [size]="14" /></button> }
+            @if (it.state === 'checking' || it.state === 'uploading') { <eng-icon name="loader" [size]="17" [spin]="true" class="blue" /> }
+            @if (it.state === 'unreadable' || it.result?.status === 'failed') { <eng-icon name="alert" [size]="17" class="red" /> }
+            @if (it.result?.status === 'indexed') { <eng-icon name="check" [size]="18" class="green" /> }
+          </div>
+          @if (it.result?.replaced; as rp) { <p class="rp"><eng-icon name="clock" [size]="13" /> "{{ rp.file_name }}" is hidden from the assistant. You can restore it from the document page.</p> }
+          @if (it.state === 'checked' && it.check) { <eng-upload-decision [item]="it" [domains]="domains()" (change)="patch(it.id, $event)" /> }
+          </div>
+        }</div>
+      }
+    </div>
+
+    <details class="opt"><summary><eng-icon name="chevron-right" [size]="14" /> Optional details <span>project, document type, tags</span></summary>
+      <div class="ob">
+        <div class="g2">
+          <label>Project<input class="eng-input" [ngModel]="project()" (ngModelChange)="project.set($event)" placeholder="e.g. EDS" /></label>
+          <label>Document type<select class="eng-input" [ngModel]="docType()" (ngModelChange)="docType.set($event)"><option value="">Not specified</option>@for (t of docTypes; track t) { <option [value]="t">{{ t }}</option> }</select></label>
+          <label>Department or area<input class="eng-input" [ngModel]="department()" (ngModelChange)="department.set($event)" placeholder="e.g. Body Exterior" /></label>
+          <label>Tags (comma separated)<input class="eng-input" [ngModel]="tags()" (ngModelChange)="tags.set($event)" placeholder="sensor, bumper" /></label>
+        </div>
+        @for (f of custom(); track $index) {
+          <div class="cf"><input class="eng-input k" [ngModel]="f.key" (ngModelChange)="setField($index, 'key', $event)" placeholder="Field" aria-label="Field name" /><input class="eng-input" [ngModel]="f.value" (ngModelChange)="setField($index, 'value', $event)" placeholder="Value" aria-label="Field value" />
+            <button type="button" class="eng-icon-btn" (click)="removeField($index)" aria-label="Remove field"><eng-icon name="x" [size]="15" /></button></div>
+        }
+        <div class="of"><button type="button" class="lnk" (click)="addField()"><eng-icon name="plus" [size]="14" /> Add field</button>
+          <label class="fc"><input type="checkbox" [ngModel]="force()" (ngModelChange)="force.set($event)" /> Process again even if the file is unchanged</label></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="ft2">
+    @if (!domain() && items().length) { <span class="msg">Choose a domain to continue</span> }
+    @if (domain() && waiting() > 0) { <span class="msg">Checking {{ waiting() }} file{{ waiting() === 1 ? '' : 's' }}…</span> }
+    <button type="button" class="eng-btn" (click)="closed.emit()">{{ allDone() ? 'Done' : 'Cancel' }}</button>
+    <button type="button" class="eng-btn primary" (click)="run()" [disabled]="!ready() || running() || !domain()">@if (running()) { <eng-icon name="loader" [size]="15" [spin]="true" /> }{{ running() ? 'Adding…' : ready() ? 'Add ' + ready() + ' file' + (ready() === 1 ? '' : 's') : 'Add files' }}</button>
+  </div>
+</section>

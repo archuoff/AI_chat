@@ -5,6 +5,7 @@
  *   node tools/assemble.mjs --template <project folder or template .zip> --out <new folder>     build a complete copy
  *   node tools/assemble.mjs --template <your GitLab clone> --in-place                          add Engismart to a clone
  *   options: --remote-name <name>   name the host uses for this remote (default: engismart)
+ *            --base-href </mf1/engismart/>   set baseHref + deployUrl in angular.json (the template still has another app's path; ask the platform team)
  *
  * It copies src/app/engismart and edits: federation.config.js, src/app/app.routes.ts, src/app/app.config.ts,
  * src/environments/*.ts (adds engismartUrl), package.json (adds marked + dompurify). Safe to run twice. Node standard library only.
@@ -22,6 +23,7 @@ const template = opt('--template');
 const out = opt('--out');
 const inPlace = args.includes('--in-place');
 const remoteName = opt('--remote-name', 'engismart');
+const baseHref = opt('--base-href', '');
 if (!template || (!out && !inPlace)) {
   console.error('usage: node tools/assemble.mjs --template <folder|zip> (--out <new folder> | --in-place) [--remote-name engismart]');
   process.exit(2);
@@ -84,6 +86,14 @@ edit(join(project, 'federation.config.js'), 'federation.config.js', (t) => {
   return n;
 });
 
+// 2b. angular.json: only when asked (the template carries the path of the app it was copied from)
+if (baseHref) {
+  edit(join(project, 'angular.json'), 'angular.json (baseHref / deployUrl)', (t) => {
+    const n = t.replace(/("baseHref":\s*")[^"]*(")/, `$1${baseHref}$2`).replace(/("deployUrl":\s*")[^"]*(")/, `$1${baseHref}$2`);
+    return n;
+  });
+}
+
 // 3. app.routes.ts: the host loads these
 edit(join(project, 'src/app/app.routes.ts'), 'src/app/app.routes.ts', (t) => {
   if (t.includes('engismart')) return null;
@@ -95,6 +105,10 @@ edit(join(project, 'src/app/app.routes.ts'), 'src/app/app.routes.ts', (t) => {
 
 // 3b. app.html: the template's placeholder page would show above our routes when the remote runs on its own
 edit(join(project, 'src/app/app.html'), 'src/app/app.html', (t) => (t.includes('Delete the template below') ? '<router-outlet />\n' : null));
+
+// 3c. app.scss: only used when the remote runs on its own (full height, a normal font); the host never loads App
+edit(join(project, 'src/app/app.scss'), 'src/app/app.scss', (t) =>
+  t.includes('--engismart') || t.trim() !== '' ? null : ':host { display: block; height: 100vh; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; /* --engismart standalone */ }\n');
 
 // 4. app.config.ts: dev-only token for `ng serve` (the host's interceptor does it when hosted)
 edit(join(project, 'src/app/app.config.ts'), 'src/app/app.config.ts', (t) => {
