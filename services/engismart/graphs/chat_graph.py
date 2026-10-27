@@ -204,7 +204,7 @@ def _postgres_checkpointer():
 
     s = get_settings()
     global _pool
-    _pool = ConnectionPool(conninfo=s.db_url.replace("postgresql+psycopg://", "postgresql://", 1), min_size=1,
+    _pool = ConnectionPool(conninfo=s.psycopg_conninfo, min_size=1,
                            max_size=max(s.db_pool_size, 2), open=True,
                            kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row,
                                    "options": "-c timezone=UTC"})

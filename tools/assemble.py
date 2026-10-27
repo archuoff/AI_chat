@@ -168,6 +168,8 @@ def assemble(template: Path, out: Path | None, in_place: bool, fix_cython: bool 
         report.append(f"copied   template -> {project}")
     for d in OUR_DIRS:
         report.append(f"copied   {d} ({_copy_tree(HERE / d, project / d)} files)")
+    shutil.copy2(HERE / "overlay" / "START_HERE.md", project / "ENGISMART_START_HERE.md")
+    report.append(f"copied   docs -> docs/engismart ({_copy_tree(HERE / 'docs', project / 'docs' / 'engismart')} files), ENGISMART_START_HERE.md")
     _edit(project / "router" / "router_outlet.py", _router, "router/router_outlet.py", report)
     _edit(project / "constants" / "constant.py", _constants, "constants/constant.py", report)
     _edit(project / "pyproject.toml", _pyproject, "pyproject.toml", report)

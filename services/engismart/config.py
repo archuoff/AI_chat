@@ -1,4 +1,5 @@
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -159,6 +160,11 @@ class Settings(BaseSettings):
             if url.startswith(prefix):
                 return "postgresql+psycopg://" + url[len(prefix):]
         return url
+
+    @property
+    def psycopg_conninfo(self) -> str:
+        """The same database as a plain libpq URL (any SQLAlchemy driver suffix removed), for the chat-memory pool."""
+        return re.sub(r"^postgres(?:ql)?(?:\+\w+)?://", "postgresql://", self.db_url)
 
     @property
     def db_is_postgres(self) -> bool:
