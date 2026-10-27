@@ -5,10 +5,11 @@
 
 What it does (safe to run twice):
   1. copies our folders  services/engismart  and  controller/engismart  into the project
-  2. edits five template files with the few lines Engismart needs:
+  2. edits six template files with the few lines Engismart needs:
        router/router_outlet.py   mounts the Engismart routers
        constants/constant.py     registers the module name
        pyproject.toml            adds our packages (run `uv lock` afterwards)
+       Dockerfile                libraries the PDF reader needs + a writable data folder for the non-root user
        setup.py                  Cython must not compile our Alembic scripts (they are loaded as source files)
        .env.*.example            lists our settings
   3. prints what it changed. Nothing else in the project is touched.
@@ -58,18 +59,27 @@ def _copy_tree(src: Path, dst: Path) -> int:
     return n
 
 
+def _read(path: Path) -> tuple[str, bool]:
+    raw = path.read_bytes().decode("utf-8")
+    return raw.replace("\r\n", "\n"), "\r\n" in raw  # edits are written for LF; Windows clones (CRLF) are handled
+
+
+def _write(path: Path, text: str, crlf: bool) -> None:
+    path.write_bytes((text.replace("\n", "\r\n") if crlf else text).encode("utf-8"))
+
+
 def _edit(path: Path, change, label: str, report: list[str]) -> None:
     if not path.exists():
         report.append(f"MISSING  {label}: {path} not found - add the lines by hand (see docs/MERGE_INSTRUCTIONS.md)")
         return
-    text = path.read_text(encoding="utf-8")
+    text, crlf = _read(path)
     new = change(text)
     if new is None:
         report.append(f"already  {label}")
     elif new == text:
         report.append(f"UNCHANGED {label}: could not find the place to edit - add the lines by hand")
     else:
-        path.write_text(new, encoding="utf-8")
+        _write(path, new, crlf)
         report.append(f"edited   {label}")
 
 
@@ -107,6 +117,17 @@ def _setup(text: str) -> str | None:
     if '"migrations"' in text:
         return None
     return text.replace("skip_files = [\n", 'skip_files = [\n    "migrations",  # Engismart: Alembic loads its scripts as source files\n', 1)
+
+
+def _dockerfile(text: str) -> str | None:
+    if "libgl1" in text:
+        return None
+    old = "    libpq-dev \\\n    curl \\\n && rm -rf /var/lib/apt/lists/*\n\n# Non-root user for security\nRUN useradd --create-home --shell /bin/bash appuser\n"
+    new = ("    libpq-dev \\\n    curl \\\n    libglib2.0-0 \\\n    libgl1 \\\n && rm -rf /var/lib/apt/lists/*\n\n"
+           "# Non-root user for security\nRUN useradd --create-home --shell /bin/bash appuser\n\n"
+           "# Engismart writes its search index, uploads and pictures here (mount a volume on STORAGE_ROOT in production)\n"
+           "RUN mkdir -p /app/data && chown -R appuser:appuser /app/data\n")
+    return text.replace(old, new, 1)
 
 
 def _cython_fix(text: str) -> str | None:
@@ -151,15 +172,14 @@ def assemble(template: Path, out: Path | None, in_place: bool, fix_cython: bool 
     _edit(project / "constants" / "constant.py", _constants, "constants/constant.py", report)
     _edit(project / "pyproject.toml", _pyproject, "pyproject.toml", report)
     _edit(project / "setup.py", _setup, "setup.py", report)
+    _edit(project / "Dockerfile", _dockerfile, "Dockerfile", report)
     if fix_cython:
         _edit(project / "setup.py", _cython_fix, "setup.py (Cython 3 fixes)", report)
-    snippet = (HERE / "overlay" / "env.engismart.example").read_text(encoding="utf-8")
+    snippet = (HERE / "overlay" / "env.engismart.example").read_text(encoding="utf-8").replace("\r\n", "\n")
     for f in sorted(project.glob(".env.*.example")):
         _edit(f, lambda t: _env_example(t, snippet), f.name, report)
-    gi = project / ".gitignore"
-    if gi.exists() and "data/engismart" not in gi.read_text(encoding="utf-8"):
-        gi.write_text(gi.read_text(encoding="utf-8").rstrip("\n") + "\n\n# Engismart local data\ndata/\n", encoding="utf-8")
-        report.append("edited   .gitignore")
+    _edit(project / ".gitignore", lambda t: None if "Engismart local data" in t else t.rstrip("\n") + "\n\n# Engismart local data\ndata/\n",
+          ".gitignore", report)
     if tmp:
         shutil.rmtree(tmp, ignore_errors=True)
     return report
