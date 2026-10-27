@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 NOT_FOUND = ("I couldn't find this in the ingested documents. Try naming the part, vehicle, sheet or document, "
              "or rephrase with the terms used in the source files.")
 
-SYSTEM_PROMPT = """You are JLR Knowledge Partner, an engineering assistant for design guidelines, benchmarking data,
+SYSTEM_PROMPT = """You are Engismart, an engineering assistant for design guidelines, benchmarking data,
 FMEAs, control plans, specifications and issue logs.
 
 Grounding:
