@@ -1,0 +1,271 @@
+"""LangGraph RAG chat pipeline.
+
+    plan ──(chitchat)──────────────────────────────► smalltalk ──► END
+      │
+      ▼
+    retrieve ──► check ──(weak & first try)──► rewrite ──► retrieve
+                   │
+                   ▼ (good, or already retried)
+                 generate ──► END
+
+State is checkpointed per session (thread_id) in the database (PostgreSQL when DATABASE_URL selects it, else a SQLite file),
+so follow-up questions work across restarts.
+Custom stream events (via get_stream_writer): {"type": "status" | "token" | "reset", ...}
+"""
+from __future__ import annotations
+
+import logging
+import operator
+import sqlite3
+import time
+from pathlib import Path
+from typing import Annotated, Any, TypedDict
+
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.config import get_stream_writer
+from langgraph.graph import END, START, StateGraph
+
+from ..config import get_settings
+from ..llm import add_usage, describe_llm_error, get_chat_model
+from ..rag import vision
+from ..rag.answer import NOT_FOUND, answer, cited_sources
+from ..rag.planner import plan_llm
+from ..rag.retriever import retrieve
+from ..rag.vocab import content_tokens
+
+log = logging.getLogger(__name__)
+
+
+class ChatState(TypedDict, total=False):
+    messages: Annotated[list[dict], operator.add]  # persisted conversation [{role, content}]
+    question: str
+    filters: dict[str, Any] | None
+    plan: dict
+    last_plan: dict  # plan of the previous turn (for follow-ups)
+    evidence: list[dict]
+    retried: bool
+    answer: str
+    sources: list[dict]
+    mode: str
+    notices: list[str]  # reset every turn (no reducer)
+    timings: dict[str, int]  # ms per step, reset every turn
+    usage: dict[str, int]  # LLM tokens / calls this turn (input_tokens, output_tokens, llm_calls), reset every turn
+    image_ref: str | None  # attached images (held in memory by rag.vision, never checkpointed), reset every turn
+    image_context: str  # vision-model description of the attached images, reset every turn
+
+
+def _usage(state: ChatState) -> dict:
+    return dict(state.get("usage") or {})
+
+
+def _timed(name: str, fn):
+    """Wrap a node so its duration is added to state['timings'][name] (ms)."""
+
+    def node(state: ChatState) -> ChatState:
+        t0 = time.perf_counter()
+        out = fn(state)
+        timings = dict(out.get("timings") or state.get("timings") or {})
+        timings[name] = timings.get(name, 0) + round((time.perf_counter() - t0) * 1000)
+        return {**out, "timings": timings}
+
+    return node
+
+
+def _emit(event: dict) -> None:
+    try:
+        get_stream_writer()(event)
+    except Exception:  # noqa: BLE001 - not running in stream mode
+        pass
+
+
+def _history(state: ChatState) -> list[dict]:
+    return [m for m in state.get("messages", []) if m["role"] in ("user", "assistant")]
+
+
+# ------------------------------------------------------------------ nodes
+def plan_node(state: ChatState) -> ChatState:
+    _emit({"type": "status", "step": "plan", "message": "Understanding the question"})
+    usage = _usage(state)
+    notices = list(state.get("notices") or [])
+    question = state["question"]
+    images = vision.get(state.get("image_ref"))
+    image_context = ""
+    if images:  # read the image(s) first, so their content drives the search
+        _emit({"type": "status", "step": "plan", "message": "Reading the attached image"})
+        image_context, notice = vision.describe(images, question, usage)
+        if notice:
+            notices.append(notice)
+    to_plan = f"{question}\n\n[Attached image shows: {image_context}]" if image_context else question
+    plan, notice = plan_llm(to_plan, _history(state), state.get("last_plan"), usage)
+    if notice:
+        notices.append(notice)
+    plan_d = plan.model_dump()
+    if images and plan_d["intent"] == "chitchat":  # "hi" + a photo is still a question about the photo
+        plan_d["intent"] = "explanation"
+        plan_d["search_queries"] = plan_d["sub_questions"] = [plan_d["standalone_question"]]
+    # the conversation keeps a text note of the image (not the image) so follow-ups understand it
+    shown = question + (f"\n\n[Attached image: {image_context[:600]}]" if image_context else ("\n\n[Attached image]" if images else ""))
+    return {"plan": plan_d, "messages": [{"role": "user", "content": shown}], "usage": usage,
+            "image_context": image_context, "notices": notices}
+
+
+def retrieve_node(state: ChatState) -> ChatState:
+    _emit({"type": "status", "step": "retrieve", "message": "Searching documents"})
+    plan = state["plan"]
+    detail: dict = {}
+    usage = _usage(state)
+    evidence = retrieve(plan["standalone_question"], plan, state.get("filters"), detail, usage)
+    timings = dict(state.get("timings") or {})
+    for k, v in detail.items():
+        timings[f"retrieve.{k}"] = timings.get(f"retrieve.{k}", 0) + v
+    return {"evidence": evidence, "timings": timings, "usage": usage}
+
+
+def rewrite_node(state: ChatState) -> ChatState:
+    """Weak evidence: try once more with different queries."""
+    _emit({"type": "status", "step": "rewrite", "message": "Rephrasing the search"})
+    plan = dict(state["plan"])
+    q = plan["standalone_question"]
+    queries = [" ".join(content_tokens(q))]
+    usage = _usage(state)
+    llm = get_chat_model(fast=True)
+    if llm is not None:
+        try:
+            msg = llm.invoke([("system", "The first search found nothing relevant. Rewrite the question into 2 alternative short "
+                                         "keyword search queries for an automotive engineering document search engine, using "
+                                         "DIFFERENT vocabulary: synonyms, expanded abbreviations, part / standard names, and how a "
+                                         "specification, FMEA or benchmarking table would phrase it. One per line, no numbering."),
+                              ("user", q)])
+            add_usage(usage, msg)
+            queries = [ln.strip("-• ").strip() for ln in str(msg.content).splitlines() if ln.strip()][:2] or queries
+        except Exception as e:  # noqa: BLE001
+            log.warning("query rewrite failed: %s", describe_llm_error(e))
+    plan["search_queries"] = queries
+    return {"plan": plan, "retried": True, "usage": usage}
+
+
+def _route_after_check(state: ChatState) -> str:
+    """retrieve() only returns evidence judged relevant; nothing returned -> rephrase once, then answer."""
+    weak = not state.get("evidence")
+    return "rewrite" if weak and not state.get("retried") else "generate"
+
+
+def generate_node(state: ChatState) -> ChatState:
+    _emit({"type": "status", "step": "generate", "message": "Writing the answer"})
+    plan, evidence = state["plan"], state.get("evidence", [])
+    usage = _usage(state)
+    text, mode, notice = answer(plan["standalone_question"], plan, _history(state)[:-1], evidence,
+                                lambda ev: _emit(ev), usage, vision.get(state.get("image_ref")),
+                                state.get("image_context") or "")
+    if not text.strip():
+        text = NOT_FOUND
+    out: ChatState = {"answer": text, "mode": mode, "sources": cited_sources(text, evidence), "last_plan": plan,
+                      "messages": [{"role": "assistant", "content": text}], "usage": usage}
+    if notice:
+        out["notices"] = state.get("notices", []) + [notice]
+    return out
+
+
+def smalltalk_node(state: ChatState) -> ChatState:
+    text = ("Hello! Ask me about the ingested documents — e.g. *compare CCB weight across vehicles*, "
+            "*what causes decoupling ring failures*, or *frunk volume of the BMW i3*.")
+    _emit({"type": "token", "text": text})
+    return {"answer": text, "mode": "offline", "sources": [], "messages": [{"role": "assistant", "content": text}]}
+
+
+# ------------------------------------------------------------------ graph
+def build_chat_graph(checkpointer=None):
+    g = StateGraph(ChatState)
+    g.add_node("plan", _timed("plan", plan_node))
+    g.add_node("retrieve", _timed("retrieve", retrieve_node))
+    g.add_node("rewrite", _timed("rewrite", rewrite_node))
+    g.add_node("generate", _timed("generate", generate_node))
+    g.add_node("smalltalk", smalltalk_node)
+    g.add_edge(START, "plan")
+    g.add_conditional_edges("plan", lambda s: "smalltalk" if s["plan"]["intent"] == "chitchat" else "retrieve",
+                            ["smalltalk", "retrieve"])
+    g.add_conditional_edges("retrieve", _route_after_check, ["rewrite", "generate"])
+    g.add_edge("rewrite", "retrieve")
+    g.add_edge("generate", END)
+    g.add_edge("smalltalk", END)
+    return g.compile(checkpointer=checkpointer)
+
+
+_graph = None
+_checkpointer: Any = None  # SqliteSaver | PostgresSaver
+_pool: Any = None  # PostgreSQL connection pool of the checkpointer
+
+
+def _postgres_checkpointer():
+    """LangGraph's PostgresSaver on its own small pool. It creates and owns its checkpoint tables (outside Alembic)."""
+    from langgraph.checkpoint.postgres import PostgresSaver
+    from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
+
+    s = get_settings()
+    global _pool
+    _pool = ConnectionPool(conninfo=s.db_url.replace("postgresql+psycopg://", "postgresql://", 1), min_size=1,
+                           max_size=max(s.db_pool_size, 2), open=True,
+                           kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row,
+                                   "options": "-c timezone=UTC"})
+    saver = PostgresSaver(_pool)
+    saver.setup()
+    return saver
+
+
+def get_chat_graph():
+    global _graph, _checkpointer
+    if _graph is None:
+        s = get_settings()
+        if s.db_is_postgres:
+            _checkpointer = _postgres_checkpointer()
+        else:
+            path = Path(s.chat_memory_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _checkpointer = SqliteSaver(sqlite3.connect(str(path), check_same_thread=False))
+        _graph = build_chat_graph(_checkpointer)
+    return _graph
+
+
+def close_chat_memory() -> None:
+    global _graph, _checkpointer, _pool
+    if _pool is not None:
+        _pool.close()
+    _graph = _checkpointer = _pool = None
+
+
+def turn_input(question: str, filters: dict | None, image_ref: str | None = None) -> ChatState:
+    """Fields reset at the start of every turn (messages / last_plan persist via the checkpointer)."""
+    return {"question": question, "filters": filters, "retried": False, "evidence": [], "notices": [],
+            "answer": "", "sources": [], "timings": {}, "usage": {}, "image_ref": image_ref, "image_context": ""}
+
+
+def config_for(session_id: str) -> dict:
+    return {"configurable": {"thread_id": session_id}}
+
+
+def run_chat(session_id: str, question: str, filters: dict | None = None, images: list[str] | None = None) -> dict:
+    graph = get_chat_graph()
+    ref = vision.hold(images or [])
+    try:
+        graph.invoke(turn_input(question, filters, ref), config_for(session_id))
+    finally:
+        vision.release(ref)  # images are used for this question only
+    return result_of(session_id)
+
+
+def result_of(session_id: str) -> dict:
+    v = get_chat_graph().get_state(config_for(session_id)).values
+    plan = v.get("plan") or {}
+    return {"session_id": session_id, "answer": v.get("answer", ""), "sources": v.get("sources", []),
+            "mode": v.get("mode"), "intent": plan.get("intent"), "plan": plan, "notices": v.get("notices", []),
+            "timings": v.get("timings", {}), "usage": v.get("usage", {})}
+
+
+def history_of(session_id: str) -> list[dict]:
+    return get_chat_graph().get_state(config_for(session_id)).values.get("messages", [])
+
+
+def delete_session(session_id: str) -> None:
+    get_chat_graph()
+    _checkpointer.delete_thread(session_id)
