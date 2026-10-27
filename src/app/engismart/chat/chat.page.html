@@ -1,0 +1,47 @@
+<div class="chat">
+  <aside class="list" [class.open]="listOpen()">
+    <button type="button" class="eng-btn primary new" (click)="newChat()"><eng-icon name="plus" [size]="15" /> New conversation</button>
+    <div class="items eng-scroll">
+      @for (s of sessions(); track s.id) {
+        <div class="item" [class.on]="s.id === activeId()" role="button" tabindex="0" (click)="select(s.id)" (keydown.enter)="select(s.id)">
+          <eng-icon name="message" [size]="14" /><span>{{ s.title }}</span>
+          <button type="button" class="del" (click)="remove(s.id, $event)" title="Delete conversation" aria-label="Delete conversation"><eng-icon name="trash" [size]="13" /></button>
+        </div>
+      } @empty {
+        <p class="none">Your conversations appear here.</p>
+      }
+    </div>
+  </aside>
+
+  <section class="conv" [class.filled]="messages().length">
+    <div class="top">
+      <button type="button" class="eng-icon-btn burger" (click)="listOpen.set(!listOpen())" aria-label="Conversations"><eng-icon name="menu" [size]="18" /></button>
+      <h1>{{ title() }}</h1>
+      <button type="button" class="eng-icon-btn" (click)="toggleSources()" [title]="sourcesOpen() ? 'Hide sources' : 'Show sources'" aria-label="Toggle sources"><eng-icon name="panel" [size]="18" /></button>
+    </div>
+    <div class="scroll eng-scroll" #scroller (scroll)="onScroll($event)">
+      @if (!messages().length) {
+        <eng-welcome [domains]="realDomains()" (ask)="ask($event)" />
+      } @else {
+        <div class="msgs">
+          @for (m of messages(); track m.id) {
+            <eng-message [msg]="m" [active]="m.id === panelMsg()?.id && m.role === 'assistant'" (cite)="cite(m.id, $event)" (showSources)="showSources(m.id)" />
+          }
+        </div>
+      }
+    </div>
+    @if (awayFromBottom() && messages().length) {
+      <button type="button" class="jump" (click)="jumpLatest()" aria-label="Jump to latest message" title="Jump to latest"><eng-icon name="arrow-down" [size]="17" /></button>
+    }
+    <eng-composer [busy]="busy()" [domain]="domain()" [domainOptions]="domainOptions()" (domainChange)="domain.set($event)" (send)="ask($event.text, $event.images)" (stop)="stop()" />
+  </section>
+
+  @if (sourcesOpen()) {
+    @if (wide()) {
+      <aside class="src"><eng-sources-panel [sources]="panelMsg()?.sources ?? []" [highlight]="highlight()" (closed)="closeSources()" /></aside>
+    } @else {
+      <div class="veil" (click)="closeSources()"></div>
+      <aside class="src over"><eng-sources-panel [sources]="panelMsg()?.sources ?? []" [highlight]="highlight()" (closed)="closeSources()" /></aside>
+    }
+  }
+</div>

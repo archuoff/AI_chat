@@ -1,0 +1,36 @@
+<div class="wrap">
+  <div class="box" [class.drag]="dragging()" (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
+    @if (dragging()) { <div class="drop"><span><eng-icon name="image-plus" [size]="16" /> Drop images to attach</span></div> }
+    @if (images().length || preparing()) {
+      <div class="thumbs">
+        @for (a of images(); track a.id) {
+          <div class="th"><img [src]="a.thumb" [alt]="a.name" /><button type="button" (click)="remove(a.id)" [attr.aria-label]="'Remove ' + a.name"><eng-icon name="x" [size]="12" /></button></div>
+        }
+        @for (i of waiting(); track $index) { <div class="th wait"><eng-icon name="loader" [size]="16" [spin]="true" /></div> }
+      </div>
+    }
+    <textarea #ta rows="1" [ngModel]="text()" (ngModelChange)="typed($event)" (focus)="warm()" (keydown)="onKey($event)" (paste)="onPaste($event)" [placeholder]="placeholder()" aria-label="Your question"></textarea>
+    <div class="row">
+      <button type="button" class="eng-icon-btn" (click)="fileInput()?.nativeElement?.click()" [disabled]="images().length >= max" title="Attach images (or paste / drag them in)" aria-label="Attach images"><eng-icon name="paperclip" [size]="17" /></button>
+      <input #files type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden (change)="pickFiles($event)" />
+      <div class="dom">
+        <button type="button" class="dbtn" [class.sel]="domain() !== 'all'" (click)="menu.set(!menu())"><eng-domain-icon [id]="domain()" size="sm" />{{ dv(domain()).label }}<eng-icon name="chevron-down" [size]="13" /></button>
+        @if (menu()) {
+          <div class="veil" (click)="menu.set(false)"></div>
+          <div class="menu">
+            @for (d of domainOptions(); track d) {
+              <button type="button" [class.cur]="d === domain()" (click)="choose(d)"><eng-domain-icon [id]="d" size="sm" /><span>{{ dv(d).label }}</span>@if (d === domain()) { <eng-icon name="check" [size]="14" /> }</button>
+            }
+          </div>
+        }
+      </div>
+      @if (error(); as e) { <span class="msg err">{{ e }}</span> } @else { <span class="msg">Enter to send · Shift+Enter new line</span> }
+      @if (busy()) {
+        <button type="button" class="round stop" (click)="stop.emit()" aria-label="Stop"><eng-icon name="square" [size]="13" /></button>
+      } @else {
+        <button type="button" class="round go" (click)="submit()" [disabled]="!canSend()" aria-label="Send"><eng-icon name="arrow-up" [size]="18" [stroke]="2.5" /></button>
+      }
+    </div>
+  </div>
+  <p class="foot">Answers are grounded in your indexed documents. Verify critical values against the cited source.</p>
+</div>

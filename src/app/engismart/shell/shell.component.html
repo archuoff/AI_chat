@@ -1,0 +1,30 @@
+<div class="eng-root">
+  <eng-styles />
+  <header class="eng-bar">
+    <div class="eng-brand"><span class="eng-mark"><eng-icon name="sparkles" [size]="15" /></span> Engismart</div>
+    @if (session.me(); as me) {
+      <nav class="eng-tabs" aria-label="Engismart sections">
+        <a routerLink="chat" routerLinkActive="on"><eng-icon name="message" [size]="15" /> Chat</a>
+        @if (session.isDeveloper()) {
+          <a routerLink="manage" routerLinkActive="on"><eng-icon name="library" [size]="15" /> Manage knowledge</a>
+          <a routerLink="users" routerLinkActive="on"><eng-icon name="users" [size]="15" /> Users &amp; usage</a>
+        }
+      </nav>
+      <div class="eng-who" [title]="'Role: ' + me.role">{{ me.display_name }} <span class="eng-role">{{ me.role }}</span></div>
+    }
+  </header>
+  <main class="eng-main">
+    @if (session.loading()) {
+      <div class="eng-center"><eng-icon name="loader" [size]="22" [spin]="true" /> Loading…</div>
+    } @else if (session.error(); as err) {
+      <div class="eng-center eng-error">
+        <eng-icon name="alert" [size]="22" />
+        <strong>Engismart is not available for you</strong>
+        <span>{{ err }}</span>
+        <button class="eng-btn" (click)="reload()"><eng-icon name="refresh" [size]="14" /> Try again</button>
+      </div>
+    } @else {
+      <router-outlet />
+    }
+  </main>
+</div>

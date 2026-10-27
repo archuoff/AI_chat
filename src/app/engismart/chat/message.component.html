@@ -1,0 +1,39 @@
+@let m = msg();
+@if (m.role === 'user') {
+  <div class="user">
+    @if (m.images?.length) {
+      <div class="imgs">
+        @for (src of m.images; track $index) {
+          <button type="button" class="img" (click)="zoom.set(src)" title="Open image"><img [src]="src" [alt]="'Attached image ' + ($index + 1)" /></button>
+        }
+      </div>
+    }
+    @if (m.content) { <div class="bubble">{{ m.content }}</div> }
+    @if (zoom(); as z) {
+      <div class="zoom" (click)="zoom.set(null)" role="dialog" aria-label="Image"><img [src]="z" alt="Attached image" /></div>
+    }
+  </div>
+} @else {
+  <div class="asst">
+    <div class="head">
+      <span class="mark"><eng-icon name="sparkles" [size]="14" /></span>
+      <span class="name">Engismart</span>
+      @if (meta()) { <span class="meta">{{ meta() }}</span> }
+    </div>
+    <div class="body" [class.active]="active()">
+      @if (m.streaming && !m.content) { <eng-thinking [steps]="m.steps ?? []" /> }
+      @if (m.content) { <eng-markdown [text]="m.content" [streaming]="!!m.streaming" (cite)="cite.emit($event)" /> }
+      @if (m.error) { <div class="note err"><eng-icon name="alert" [size]="16" />{{ m.error }}</div> }
+      @for (n of m.notices ?? []; track $index) { <div class="note warn"><eng-icon name="info" [size]="15" />{{ n }}</div> }
+      @if (done() && m.content) {
+        <div class="actions">
+          <button type="button" (click)="copy()" title="Copy answer"><eng-icon [name]="copied() ? 'check' : 'copy'" [size]="14" />{{ copied() ? 'Copied' : 'Copy' }}</button>
+          @if (sources().length) {
+            <button type="button" [class.on]="active()" (click)="showSources.emit()"><eng-icon name="layers" [size]="14" />{{ citedCount() ? citedCount() + ' cited' : sources().length + ' sources' }}</button>
+          }
+          @if (m.elapsedMs !== undefined) { <span class="time" [title]="timingTitle()"><eng-icon name="zap" [size]="13" />{{ seconds() }}s</span> }
+        </div>
+      }
+    </div>
+  </div>
+}

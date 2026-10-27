@@ -1,0 +1,14 @@
+<div class="w">
+  <div class="mark"><eng-icon name="sparkles" [size]="30" /></div>
+  <h2>How can I support your <span>engineering work today?</span></h2>
+  <p>Get reliable, source-referenced answers from your organisation's engineering standards, design guidelines and benchmarking data.</p>
+  <div class="grid">
+    @for (s of shown(); track s.q) {
+      <button type="button" class="tile" (click)="ask.emit(s.q)" (mouseenter)="warm()">
+        <span class="tag"><span class="ti"><eng-icon [name]="s.icon" [size]="13" /></span>{{ s.tag.toUpperCase() }}</span>
+        <span class="q">{{ s.q }}</span>
+        <eng-icon class="go" name="arrow-right" [size]="16" />
+      </button>
+    }
+  </div>
+</div>

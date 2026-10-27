@@ -1,0 +1,62 @@
+/* Not encapsulated on purpose: these are the shared tokens and utility classes of the whole remote. Every selector is under .eng-root,
+   so nothing leaks into the host page. */
+.eng-root {
+  --eng-navy: #001b5b;
+  --eng-primary: #0000b3;
+  --eng-primary-soft: #e1e3ff;
+  --eng-periwinkle: #6b7ae8;
+  --eng-teal: #0b8f81;
+  --eng-ember: #c2410c;
+  --eng-ink: #1a1d33;
+  --eng-slate: #4e4b66;
+  --eng-line: #dfe2ee;
+  --eng-mist: #eef0f8;
+  --eng-canvas: #f6f7fc;
+  --eng-white: #fff;
+  --eng-amber-tint: #fdf0dc;
+  --eng-radius: 14px;
+  --eng-shadow: 0 1px 2px rgba(0, 27, 91, 0.06), 0 6px 18px -10px rgba(0, 27, 91, 0.18);
+  --eng-shadow-lift: 0 10px 34px -12px rgba(0, 27, 91, 0.28);
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 560px;
+  color: var(--eng-ink);
+  background: var(--eng-canvas);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  box-sizing: border-box;
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  .eng-bar { display: flex; align-items: center; gap: 18px; padding: 0 18px; height: 52px; background: var(--eng-white); border-bottom: 1px solid var(--eng-line); flex: none; }
+  .eng-brand { display: flex; align-items: center; gap: 8px; font-weight: 800; color: var(--eng-navy); letter-spacing: -0.01em; font-size: 16px; }
+  .eng-mark { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 9px; color: #fff;
+    background: linear-gradient(135deg, var(--eng-primary), var(--eng-periwinkle)); }
+  .eng-tabs { display: flex; gap: 4px; }
+  .eng-tabs a { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 10px; color: var(--eng-slate); text-decoration: none; font-weight: 600; font-size: 13.5px; }
+  .eng-tabs a:hover { background: var(--eng-mist); color: var(--eng-navy); }
+  .eng-tabs a.on { background: var(--eng-primary-soft); color: var(--eng-primary); }
+  .eng-who { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--eng-navy); display: flex; gap: 8px; align-items: center; }
+  .eng-role { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 99px; background: var(--eng-mist); color: var(--eng-slate); }
+  .eng-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .eng-center { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--eng-slate); text-align: center; padding: 24px; max-width: 460px; }
+  .eng-error { color: var(--eng-ember); }
+
+  /* buttons */
+  .eng-btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--eng-line); background: var(--eng-white); color: var(--eng-navy);
+    border-radius: 10px; padding: 7px 13px; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; transition: background 0.12s, border-color 0.12s, box-shadow 0.12s; }
+  .eng-btn:hover:not(:disabled) { background: var(--eng-mist); border-color: #c9cde0; }
+  .eng-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .eng-btn.primary { background: linear-gradient(135deg, var(--eng-primary), #2a35d6); color: #fff; border-color: transparent; box-shadow: 0 8px 18px -10px rgba(0, 0, 179, 0.8); }
+  .eng-btn.primary:hover:not(:disabled) { filter: brightness(1.08); background: linear-gradient(135deg, var(--eng-primary), #2a35d6); }
+  .eng-btn.danger { color: #b3261e; }
+  .eng-btn.danger:hover:not(:disabled) { background: #fdecea; border-color: #f2b8b5; }
+  .eng-btn.sm { padding: 4px 9px; font-size: 12px; border-radius: 8px; }
+  .eng-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; background: transparent; color: var(--eng-slate);
+    border-radius: 8px; cursor: pointer; }
+  .eng-icon-btn:hover:not(:disabled) { background: var(--eng-mist); color: var(--eng-navy); }
+  .eng-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+}
