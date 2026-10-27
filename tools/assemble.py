@@ -50,7 +50,10 @@ DEPENDENCIES = [
 def _copy_tree(src: Path, dst: Path) -> int:
     n = 0
     for f in src.rglob("*"):
-        if f.is_dir() or SKIP & set(f.relative_to(src).parts) or f.suffix in (".pyc", ".pyo"):
+        if SKIP & set(f.relative_to(src).parts) or f.suffix in (".pyc", ".pyo"):
+            continue
+        if f.is_dir():  # keep empty folders (the template has an empty certificates/)
+            (dst / f.relative_to(src)).mkdir(parents=True, exist_ok=True)
             continue
         target = dst / f.relative_to(src)
         target.parent.mkdir(parents=True, exist_ok=True)
