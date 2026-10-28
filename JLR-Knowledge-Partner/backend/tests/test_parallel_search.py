@@ -154,3 +154,31 @@ def test_the_streaming_endpoint_works_through_the_fan_out(api, monkeypatch):
     res = api.post("/api/chat/stream", json={"session_id": "par2", "message": "weight of Audi SQ6"})
     assert res.status_code == 200 and '"type": "final"' in res.text and "Audi SQ6" in res.text
     assert '"step": "retrieve"' in res.text  # the status step still shows up once
+
+
+# ------------------------------------------------------------------ edit and send: the conversation memory is rewound
+def test_rewind_forgets_the_later_turns_and_the_conversation_continues_from_there(api, monkeypatch):
+    from conftest import FakeEmbedder
+
+    from app.graphs import chat_graph
+    from app.rag import answer as answer_mod
+    monkeypatch.setattr(answer_mod, "get_embedder", lambda: FakeEmbedder())
+    r = api.post("/api/documents/check", files={"file": ("a.xlsx", _xlsx())}, data={"domain": "adas"}).json()
+    api.post("/api/documents/commit", json={"check_id": r["check_id"], "domain": "adas", "intent": "new"})
+    sid = "u1:rewind"
+    for q in ("weight of Audi SQ6", "weight of BMW X5", "hello there"):
+        chat_graph.run_chat(sid, q)
+    assert [m["role"] for m in chat_graph.history_of(sid)] == ["user", "assistant"] * 3
+    assert chat_graph.rewind_session(sid, 1) == 2  # keep only the first question and its answer
+    kept = chat_graph.history_of(sid)
+    assert len(kept) == 2 and "Audi SQ6" in kept[0]["content"]
+    chat_graph.run_chat(sid, "weight of Volvo EX90")  # the edited question
+    after = chat_graph.history_of(sid)
+    assert len(after) == 4 and "Volvo" in after[2]["content"] and not any("BMW" in m["content"] for m in after if m["role"] == "user")  # the forgotten question is gone
+    assert chat_graph.rewind_session(sid, 5) == 4  # more turns than exist: nothing to forget
+    assert chat_graph.rewind_session(sid, 0) == 0 and chat_graph.history_of(sid) == []  # editing the very first question starts clean
+
+
+def test_rewind_endpoint_is_per_user_and_validates(api):
+    assert api.post("/api/chat/s9/rewind", json={"turns": 0}).status_code == 200
+    assert api.post("/api/chat/s9/rewind", json={"turns": -1}).status_code == 422

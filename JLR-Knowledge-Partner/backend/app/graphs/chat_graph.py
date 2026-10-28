@@ -311,6 +311,30 @@ def history_of(session_id: str) -> list[dict]:
     return get_chat_graph().get_state(config_for(session_id)).values.get("messages", [])
 
 
+def rewind_session(session_id: str, turns: int) -> int:
+    """Edit and send: forget every question after the first `turns` finished ones (each turn = a question and its answer), so the
+    edited question is answered with the memory it would have had. Returns the number of messages kept.
+
+    The conversation is forked from the checkpoint taken right after turn `turns` (LangGraph time travel): the later turns stay in the
+    database history but are no longer part of the conversation."""
+    graph = get_chat_graph()
+    keep = max(0, turns) * 2
+    cfg = config_for(session_id)
+    msgs = graph.get_state(cfg).values.get("messages", [])
+    if len(msgs) <= keep and (not msgs or msgs[-1]["role"] == "assistant"):
+        return len(msgs)  # nothing after that point
+    if keep == 0:
+        delete_session(session_id)
+        return 0
+    for snap in graph.get_state_history(cfg):  # newest first
+        m = snap.values.get("messages", [])
+        if not snap.next and len(m) == keep and m[-1]["role"] == "assistant":
+            graph.update_state(snap.config, {"retried": False}, as_node="generate")  # a new checkpoint on top: the fork
+            return keep
+    delete_session(session_id)  # that point is no longer in the history: start clean rather than answer with the wrong memory
+    return 0
+
+
 def delete_session(session_id: str) -> None:
     get_chat_graph()
     _checkpointer.delete_thread(session_id)

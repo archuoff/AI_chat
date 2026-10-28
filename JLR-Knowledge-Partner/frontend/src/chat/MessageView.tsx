@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { Check, Copy, Info, Layers, TriangleAlert, Zap } from 'lucide-react'
+import { Check, Copy, Info, Layers, Pencil, TriangleAlert, Zap } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { JlrLogo } from '../components/Brand'
 import type { UIMessage } from '../lib/types'
 import { AnswerMarkdown } from './Markdown'
@@ -39,11 +39,30 @@ type Props = {
   active: boolean
   onCite: (n: number) => void
   onShowSources: () => void
+  /** edit and send: the later conversation is dropped and the new text is asked instead (undefined = not offered) */
+  onEdit?: (text: string) => void
 }
 
-export function MessageView({ msg, active, onCite, onShowSources }: Props) {
+export function MessageView({ msg, active, onCite, onShowSources, onEdit }: Props) {
   const [copied, setCopied] = useState(false)
   const [zoom, setZoom] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(msg.content)
+  const box = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (!editing) return
+    const el = box.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [editing])
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    el.style.height = '0px'
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`
+  }, [draft, editing])
 
   if (msg.role === 'user') {
     return (
@@ -62,9 +81,61 @@ export function MessageView({ msg, active, onCite, onShowSources }: Props) {
             ))}
           </div>
         )}
-        {msg.content && (
-          <div className="max-w-[80%] rounded-3xl rounded-br-lg bg-[#eaedfd] px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-tt-navy">
-            {msg.content}
+        {msg.content && !editing && (
+          <div className="group/q flex max-w-[80%] items-start gap-1.5">
+            {onEdit && (
+              <button
+                onClick={() => {
+                  setDraft(msg.content)
+                  setEditing(true)
+                }}
+                className="mt-1.5 rounded-lg p-1.5 text-tt-slate opacity-0 transition group-hover/q:opacity-100 hover:bg-tt-mist hover:text-tt-navy focus:opacity-100"
+                title="Edit and send again"
+                aria-label="Edit this question"
+              >
+                <Pencil size={14} />
+              </button>
+            )}
+            <div className="rounded-3xl rounded-br-lg bg-[#eaedfd] px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-tt-navy">{msg.content}</div>
+          </div>
+        )}
+        {editing && (
+          <div className="w-full max-w-[80%] rounded-3xl border border-tt-periwinkle/60 bg-white p-3 shadow-card">
+            <textarea
+              ref={box}
+              value={draft}
+              rows={1}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && draft.trim()) {
+                  e.preventDefault()
+                  setEditing(false)
+                  onEdit?.(draft.trim())
+                }
+                if (e.key === 'Escape') setEditing(false)
+              }}
+              className="block max-h-60 w-full resize-none bg-transparent px-1 text-[15px] leading-relaxed text-tt-ink outline-none"
+              aria-label="Edit your question"
+            />
+            {msg.images && msg.images.length > 0 && (
+              <p className="mt-1 px-1 text-[12px] text-tt-slate">Attached images are not kept when you edit: add them again if they matter.</p>
+            )}
+            <p className="mt-1 px-1 text-[12px] text-tt-slate">Sending again removes the answers that followed this question.</p>
+            <div className="mt-2 flex justify-end gap-2">
+              <button onClick={() => setEditing(false)} className="rounded-xl px-3.5 py-1.5 text-[13px] font-semibold text-tt-slate hover:bg-tt-mist">
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setEditing(false)
+                  onEdit?.(draft.trim())
+                }}
+                disabled={!draft.trim()}
+                className="rounded-xl bg-tt-electric px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-tt-electric-600 disabled:opacity-40"
+              >
+                Send
+              </button>
+            </div>
           </div>
         )}
         {zoom && (

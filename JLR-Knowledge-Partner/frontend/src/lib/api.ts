@@ -145,6 +145,9 @@ export const api = {
   history: (sessionId: string) =>
     get<{ role: 'user' | 'assistant'; content: string }[]>(`/api/chat/${encodeURIComponent(sessionId)}/messages`),
   deleteSession: (sessionId: string) => send('DELETE', `/api/chat/${encodeURIComponent(sessionId)}`),
+  /** Edit and send: the server forgets every question after the first `turns` ones before the edited question is sent. */
+  rewind: (sessionId: string, turns: number) =>
+    send<{ kept_messages: number }>('POST', `/api/chat/${encodeURIComponent(sessionId)}/rewind`, { turns }),
 }
 
 /** POST /api/chat/stream and dispatch each server-sent event. Resolves with the final payload. */

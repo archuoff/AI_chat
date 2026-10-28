@@ -134,6 +134,25 @@ export const ChatView = memo(function ChatView({ sessionId, onTouched, sourcesOp
     [busy, onTouched, domain, sessionId],
   )
 
+  /** Edit and send: forget this question and everything after it (here and in the server's memory), then ask the new text. */
+  const editAndSend = useCallback(
+    async (msgId: string, text: string) => {
+      if (busy || !text) return
+      const idx = messages.findIndex((m) => m.id === msgId)
+      if (idx < 0) return
+      const turns = messages.slice(0, idx).filter((m) => m.role === 'user').length
+      try {
+        await api.rewind(sessionId, turns)
+      } catch {
+        /* the server could not rewind: the answer may still see the later questions */
+      }
+      setMessages((ms) => ms.slice(0, ms.findIndex((m) => m.id === msgId)))
+      setHighlight(null)
+      await send(text)
+    },
+    [busy, messages, sessionId, send],
+  )
+
   const cite = (msgId: string, n: number) => {
     setActiveMsg(msgId)
     setHighlight(n)
@@ -164,6 +183,7 @@ export const ChatView = memo(function ChatView({ sessionId, onTouched, sourcesOp
                   msg={m}
                   active={m.id === panelMsg?.id && m.role === 'assistant'}
                   onCite={(n) => cite(m.id, n)}
+                  onEdit={m.role === 'user' && !busy ? (text) => editAndSend(m.id, text) : undefined}
                   onShowSources={() => {
                     setActiveMsg(m.id)
                     setHighlight(null)

@@ -30,7 +30,17 @@ from .classify import suggest_domain
 from .cli import _files
 from .config import get_settings
 from .domains import UNASSIGNED, domains_payload, validate_domain
-from .graphs.chat_graph import close_chat_memory, config_for, delete_session, get_chat_graph, history_of, result_of, run_chat, turn_input
+from .graphs.chat_graph import (
+    close_chat_memory,
+    config_for,
+    delete_session,
+    get_chat_graph,
+    history_of,
+    result_of,
+    rewind_session,
+    run_chat,
+    turn_input,
+)
 from .graphs.ingest_graph import rebuild_signature, refresh_images, run_ingest, source_file
 from .images import catalog as image_catalog
 from .images import describe as image_describe
@@ -618,6 +628,16 @@ def chat_stream(req: ChatRequest, p: Principal = Depends(current_user)):
 @app.get("/api/chat/{session_id}/messages")
 def chat_messages(session_id: str, p: Principal = Depends(current_user)):
     return history_of(_thread(p, session_id))
+
+
+class RewindRequest(BaseModel):
+    turns: int = Field(ge=0, le=500, description="Keep the first N questions with their answers; everything after is forgotten")
+
+
+@app.post("/api/chat/{session_id}/rewind")
+def chat_rewind(session_id: str, req: RewindRequest, p: Principal = Depends(current_user)):
+    """Edit and send: the conversation memory goes back to just after turn N, so the edited question is answered without the later turns."""
+    return {"kept_messages": rewind_session(_thread(p, session_id), req.turns)}
 
 
 @app.delete("/api/chat/{session_id}")

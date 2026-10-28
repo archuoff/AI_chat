@@ -1,4 +1,19 @@
-# NEWEST: parallel search (LangGraph fan-out) + places for every part of a question
+# NEWEST (2): edit and send a question
+
+Hover a question in Chat: a pencil appears. Edit the text, press Enter or Send: the answers that followed that question disappear (also from the server's conversation memory) and the edited question is answered.
+
+| File | State |
+|---|---|
+| `backend/app/graphs/chat_graph.py` | modified (`rewind_session`) |
+| `backend/app/main.py` | modified (`POST /api/chat/{session}/rewind`) |
+| `backend/tests/test_parallel_search.py` | modified (2 tests) |
+| `frontend/src/lib/api.ts`, `frontend/src/chat/MessageView.tsx`, `frontend/src/chat/ChatView.tsx` | modified |
+
+Images attached to the old question are not kept (only thumbnails exist); the editor says so.
+
+---
+
+# parallel search (LangGraph fan-out) + places for every part of a question
 
 Copy these files (paths relative to `JLR-Knowledge-Partner/backend/`), no database change, no re-ingest needed:
 
