@@ -42,16 +42,24 @@ class FakeStore:
         return self.first
 
 
+def _collect(plan, filters, named):
+    """All searches of the question, then the second pass (what the chat graph does across its parallel branches and merge step)."""
+    merged = retriever.merge_hits(retriever.run_specs(retriever.search_specs(plan, filters, named)))
+    for extra in retriever._second_pass(merged, plan, filters):
+        merged = retriever.merge_hits([list(merged.values()), extra])
+    return merged
+
+
 def test_a_document_that_fills_the_pool_triggers_a_second_search_without_it(monkeypatch):
     first = [{"id": f"x{i}", "doc_id": "xlsx", "kind": "record", "text": "row", "score": 0.05 - i / 1000, "location": {}} for i in range(30)]
     store = FakeStore(first)
     monkeypatch.setattr(retriever, "get_store", lambda: store)
-    cands = retriever._collect({"standalone_question": "bond flange?", "search_queries": ["bond flange"]}, {"domain": ["adas"]}, [])
+    cands = _collect({"standalone_question": "bond flange?", "search_queries": ["bond flange"]}, {"domain": ["adas"]}, [])
     assert "d1" in cands and store.calls[-1] == {"domain": ["adas"], "!doc_id": ["xlsx"]}
     mixed = [dict(h, doc_id="xlsx" if i % 2 else "docx") for i, h in enumerate(first)]
     store2 = FakeStore(mixed)
     monkeypatch.setattr(retriever, "get_store", lambda: store2)
-    retriever._collect({"standalone_question": "q", "search_queries": ["q"]}, None, [])
+    _collect({"standalone_question": "q", "search_queries": ["q"]}, None, [])
     assert not any(c.get("!doc_id") for c in store2.calls)  # two documents sharing the pool 50 / 50: nothing is crowded out
 
 

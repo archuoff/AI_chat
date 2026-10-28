@@ -29,6 +29,10 @@
 
 8. **DONE (code + tests; check on your real documents):** retrieval no longer lets one document crowd out the others that hold the same facts: a second search without the hogging document, and guaranteed places per document (`DIVERSIFY_DOCUMENTS`, `EVIDENCE_MIN_PER_DOC`, `EVIDENCE_MAX_DOC_SHARE`, `HOGGING_DOC_SHARE`). Still open: show "also found in ..." when several documents carry the same fact.
 
+9. **DONE (code + tests; measure on your documents):** parallel search with LangGraph. The chat graph is now `plan -> prepare -> search x N (one branch per phrasing /
+   sub-question / exact id) -> merge -> check`. A question with several parts keeps at least `EVIDENCE_MIN_PER_SUB` (2) places for every part. `PARALLEL_SEARCH=false` goes back to one search after another.
+   Real time gain needs a Qdrant server (the embedded folder is read by one thread at a time).
+
 ## Later
 - Experimental pipeline: apply Analyst proposals and re-extract; fix FMEA typing; picture straddle judge; review inbox; run on real Radar / FMEA files; wire into `app/`.
 - Retrieval Phase 1 (trace log, truncation notices, answer verification, weak-evidence retry, bigger eval set).

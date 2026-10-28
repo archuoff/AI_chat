@@ -6,6 +6,7 @@ Collections
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import threading
@@ -60,6 +61,9 @@ class KGStore:
         self.embedder = get_embedder()
         self.sparse = get_sparse_embedder()
         self._lock = threading.RLock()
+        # reads: the embedded Qdrant must be used by one thread at a time; a Qdrant server handles parallel searches itself
+        self._read_lock = contextlib.nullcontext() if s.qdrant_url else self._lock
+        self._cache_lock = threading.Lock()  # the query-embedding cache is shared by parallel searches
         self._qcache: OrderedDict[str, tuple] = OrderedDict()
         self._ensure_collections()
 
@@ -263,28 +267,32 @@ class KGStore:
     # ------------------------------------------------------------------ retrieval
     def _query_vectors(self, query: str) -> tuple[list[float], models.SparseVector]:
         """Embed a query once; the same question is searched several times (sub-queries, sheet filters)."""
-        cached = self._qcache.get(query)
-        if cached is None:
-            dense = self.embedder.embed_query(query)  # network call with Azure embeddings
-            idx, val = self.sparse.embed_query(query)
-            cached = (dense, models.SparseVector(indices=idx, values=val))
+        with self._cache_lock:
+            cached = self._qcache.get(query)
+            if cached is not None:
+                self._qcache.move_to_end(query)
+                return cached
+        dense = self.embedder.embed_query(query)  # network call with Azure embeddings (outside the lock)
+        idx, val = self.sparse.embed_query(query)
+        cached = (dense, models.SparseVector(indices=idx, values=val))
+        with self._cache_lock:
             self._qcache[query] = cached
             if len(self._qcache) > 512:
                 self._qcache.popitem(last=False)
-        else:
-            self._qcache.move_to_end(query)
         return cached
 
     def prefetch_queries(self, queries: list[str]) -> None:
         """Embed several query phrasings at once: one Azure request instead of one per phrasing."""
-        missing = [q for q in dict.fromkeys(queries) if q not in self._qcache]
+        with self._cache_lock:
+            missing = [q for q in dict.fromkeys(queries) if q not in self._qcache]
         if not missing:
             return
         if isinstance(self.embedder, AzureEmbedder) and len(missing) > 1:
             dense = self.embedder.embed_documents(missing)  # text-embedding-3: same vectors as embed_query
             for q, dv in zip(missing, dense):
                 idx, val = self.sparse.embed_query(q)
-                self._qcache[q] = (dv, models.SparseVector(indices=idx, values=val))
+                with self._cache_lock:
+                    self._qcache[q] = (dv, models.SparseVector(indices=idx, values=val))
         else:
             for q in missing:
                 self._query_vectors(q)
@@ -295,7 +303,7 @@ class KGStore:
             return {}
         qvs = [self._query_vectors(q)[0] for q in queries]
         qvs = [(v, math.sqrt(sum(x * x for x in v)) or 1.0) for v in qvs]
-        with self._lock:
+        with self._read_lock:
             recs = self.client.retrieve(self.settings.chunks_collection, ids, with_payload=False, with_vectors=[DENSE])
         out: dict[str, float] = {}
         for r in recs:
@@ -310,7 +318,7 @@ class KGStore:
         flt = _filter(filters)
         dense_q, sparse_q = self._query_vectors(query)
         col = self.settings.chunks_collection
-        with self._lock:
+        with self._read_lock:
             if mode == "dense":
                 res = self.client.query_points(col, query=dense_q, using=DENSE, query_filter=flt, limit=top_k, with_payload=True)
             elif mode == "keyword":
@@ -325,7 +333,7 @@ class KGStore:
 
     def scroll_chunks(self, filters: dict[str, Any], limit: int = 500, fields: list[str] | bool = True) -> list[dict]:
         out, offset = [], None
-        with self._lock:
+        with self._read_lock:
             while len(out) < limit:
                 recs, offset = self.client.scroll(self.settings.chunks_collection, scroll_filter=_filter(filters),
                                                   limit=min(256, limit - len(out)), offset=offset, with_payload=fields)

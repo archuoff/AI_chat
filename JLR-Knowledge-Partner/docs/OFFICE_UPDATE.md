@@ -1,3 +1,23 @@
+# NEWEST: parallel search (LangGraph fan-out) + places for every part of a question
+
+Copy these files (paths relative to `JLR-Knowledge-Partner/backend/`), no database change, no re-ingest needed:
+
+| File | State |
+|---|---|
+| `app/rag/searchjob.py` | new (in-memory list of the searches of one question) |
+| `app/rag/retriever.py` | modified (`search_specs`, `run_search`, `merge_hits`, `prepare`, `assemble`, per-sub-question places) |
+| `app/graphs/chat_graph.py` | modified (`prepare -> search x N -> merge`) |
+| `app/store.py` | modified (reads do not wait for each other when a Qdrant server is used; query cache lock) |
+| `app/config.py` | modified (4 new settings, all with defaults) |
+| `tests/test_parallel_search.py` | new |
+| `tests/test_document_diversity.py` | modified |
+
+Optional `.env` settings: `PARALLEL_SEARCH=true`, `SEARCH_WORKERS=6`, `PER_SUB_EVIDENCE=true`, `EVIDENCE_MIN_PER_SUB=2`.
+Run: `python -m pytest tests -q` (78 pass). In Chat the "Searching documents" step is unchanged; `timings` now also show `retrieve.search_wall` (real waiting time)
+and `retrieve.search_busiest` (the slowest single search): wall close to busiest = the searches really ran side by side.
+
+---
+
 # FIRST: the PostgreSQL / Alembic commit (70f4f3d) is missing on the office PC
 
 The list below assumes you already have it. If `backend/alembic.ini` is missing, you do not. Without these files the backend

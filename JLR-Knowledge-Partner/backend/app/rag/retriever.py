@@ -10,6 +10,7 @@ import logging
 import math
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ..config import get_settings
@@ -80,32 +81,108 @@ def _diversify(units: list[dict], k: int, min_per_doc: int, max_share: float) ->
     return [units[i] for i in sorted(chosen)]
 
 
-def _collect(plan: dict, user_filters: dict | None, named_sheets: list[str]) -> dict[str, dict]:
-    s = get_settings()
-    store = get_store()
-    cands: dict[str, dict] = {}
+def search_specs(plan: dict, user_filters: dict | None, named_sheets: list[str]) -> list[dict]:
+    """Every search one question needs, as plain data, so they can run side by side (LangGraph fan-out or a thread pool).
 
-    def add(hits: list[dict], **flags):
+    kinds: "query" (hybrid search of one phrasing), "sub" (one sub-question of a multi-part question, tagged so that every
+    part keeps places in the evidence), "id" (exact part number / standard id), "structured" (whole rows of a named sheet)."""
+    s = get_settings()
+    specs: list[dict] = []
+    queries = plan.get("search_queries") or [plan["standalone_question"]]
+    for q in queries:
+        specs.append({"kind": "query", "q": q, "limit": s.retrieve_candidates, "filters": user_filters})
+        if plan.get("sheets"):
+            specs.append({"kind": "query", "q": q, "limit": s.retrieve_candidates // 2,
+                          "filters": _merge_filters(user_filters, {"location.sheet": plan["sheets"]})})
+    subs = [q for q in plan.get("sub_questions") or [] if q.strip()]
+    if s.per_sub_evidence and len(subs) >= 2:
+        for j, sq in enumerate(subs):
+            specs.append({"kind": "sub", "q": sq, "limit": s.retrieve_candidates, "filters": user_filters, "sub": j})
+    for id_ in plan.get("ids", []):
+        specs.append({"kind": "id", "q": id_, "limit": 100, "filters": user_filters, "mode": "keyword"})
+    if plan.get("intent") in ("comparison", "list") and named_sheets:
+        specs.append({"kind": "structured", "limit": 400,
+                      "filters": _merge_filters(user_filters, {"location.sheet": named_sheets, "kind": "record"})})
+    return specs
+
+
+def run_search(spec: dict) -> list[dict]:
+    """One search of the list above. Safe to call from several threads at once."""
+    store = get_store()
+    kind = spec["kind"]
+    if kind == "structured":
+        hits = store.scroll_chunks(spec["filters"], limit=spec["limit"])
+        for h in hits:
+            h["structured"] = True
+    elif kind == "id":
+        hits = [h for h in store.search(spec["q"], spec["limit"], spec["filters"], mode="keyword") if spec["q"].lower() in h["text"].lower()]
+        for h in hits:
+            h["exact"] = True
+    else:
+        hits = store.search(spec["q"], spec["limit"], spec["filters"], spec.get("mode", "hybrid"))
+        if "sub" in spec:
+            for h in hits:
+                h["subs"] = [spec["sub"]]
+    return hits
+
+
+def run_specs(specs: list[dict]) -> list[list[dict]]:
+    """Run searches without the graph (tests, eval, the second pass): in a thread pool when PARALLEL_SEARCH is on."""
+    s = get_settings()
+    if len(specs) < 2 or not s.parallel_search:
+        return [run_search(sp) for sp in specs]
+    with ThreadPoolExecutor(max_workers=max(1, min(s.search_workers, len(specs)))) as pool:
+        return list(pool.map(run_search, specs))
+
+
+def merge_hits(batches: list[list[dict]]) -> dict[str, dict]:
+    """Union of the hits of every search, in search order; a chunk keeps the flags of every search that found it."""
+    cands: dict[str, dict] = {}
+    for hits in batches:
         for h in hits:
             c = cands.setdefault(h["id"], h)
-            for k, v in flags.items():
-                c[k] = c.get(k) or v
-
-    for q in plan.get("search_queries") or [plan["standalone_question"]]:
-        add(store.search(q, s.retrieve_candidates, user_filters))
-        if plan.get("sheets"):
-            add(store.search(q, s.retrieve_candidates // 2, _merge_filters(user_filters, {"location.sheet": plan["sheets"]})))
-    dominant = _dominant_docs(cands, s.hogging_doc_share) if s.diversify_documents else []
-    if dominant:  # one document fills the pool: look again at everything else, so a document with the same facts is not lost
-        for q in plan.get("search_queries") or [plan["standalone_question"]]:
-            add(store.search(q, s.retrieve_candidates // 2, _merge_filters(user_filters, {"!doc_id": dominant})))
-    for id_ in plan.get("ids", []):
-        hits = store.search(id_, 100, user_filters, mode="keyword")
-        add([h for h in hits if id_.lower() in h["text"].lower()], exact=True)
-    if plan.get("intent") in ("comparison", "list") and named_sheets:
-        rows = store.scroll_chunks(_merge_filters(user_filters, {"location.sheet": named_sheets, "kind": "record"}), limit=400)
-        add(rows, structured=True)
+            if c is not h:
+                for flag in ("exact", "structured"):
+                    if h.get(flag):
+                        c[flag] = True
+                if h.get("subs"):
+                    c["subs"] = sorted(set(c.get("subs") or []) | set(h["subs"]))
     return cands
+
+
+def _second_pass(cands: dict[str, dict], plan: dict, user_filters: dict | None) -> list[list[dict]]:
+    """One document fills the pool: look again at everything else, so a document with the same facts is not lost."""
+    s = get_settings()
+    dominant = _dominant_docs(cands, s.hogging_doc_share) if s.diversify_documents else []
+    if not dominant:
+        return []
+    queries = plan.get("search_queries") or [plan["standalone_question"]]
+    return run_specs([{"kind": "query", "q": q, "limit": s.retrieve_candidates // 2,
+                       "filters": _merge_filters(user_filters, {"!doc_id": dominant})} for q in queries])
+
+
+def _reserve_per_sub(selected: list[dict], pool: list[dict], n_subs: int, k: int, min_each: int, qualifies) -> list[dict]:
+    """A question with several parts ("compare the weight and give the torque") must not be answered from one part only:
+    every sub-question keeps at least `min_each` of the evidence places. Missing ones are taken from the ranked pool
+    (only evidence that passed the relevance check); the lowest-ranked unprotected units make room. Rank order is kept."""
+    if n_subs < 2 or min_each <= 0:
+        return selected
+    has = lambda u, j: any(j in (c.get("subs") or ()) for c in u["chunks"])  # noqa: E731
+    rank = {id(u): i for i, u in enumerate(pool)}
+    chosen = list(selected)
+    protected: set[int] = set()
+    for j in range(n_subs):
+        mine = [u for u in chosen if has(u, j)]
+        extra = [u for u in pool if all(u is not x for x in chosen) and has(u, j) and qualifies(u)][: max(0, min_each - len(mine))]
+        chosen += extra
+        protected.update(id(u) for u in (mine + extra)[:min_each])
+    chosen.sort(key=lambda u: rank.get(id(u), len(rank)))
+    while len(chosen) > k:
+        drop = next((u for u in reversed(chosen) if id(u) not in protected), None)
+        if drop is None:
+            break
+        chosen.remove(drop)
+    return chosen
 
 
 def _cap(cands: list[dict], limit: int) -> list[dict]:
@@ -306,25 +383,46 @@ def _link_pictures(final: list[dict], cap: int) -> int:
     return added
 
 
-def retrieve(question: str, plan: dict, user_filters: dict | None = None, timings: dict | None = None,
-             usage: dict | None = None) -> list[dict]:
-    s = get_settings()
+def prepare(question: str, plan: dict, user_filters: dict | None, timings: dict) -> dict:
+    """Embed every phrasing once (one request, cached for all searches) and list the searches to run."""
     store = get_store()
-    timings = timings if timings is not None else {}
     queries = plan.get("search_queries") or [plan["standalone_question"]]
     sim_queries = list(dict.fromkeys(queries + _rerank_queries(question, plan)))
-
     t0 = time.perf_counter()
-    store.prefetch_queries(sim_queries)  # one embedding request for all phrasings, cached for every sub-search
+    store.prefetch_queries(sim_queries)
     timings["embed"] = timings.get("embed", 0) + round((time.perf_counter() - t0) * 1000)
-
     # whole-sheet loading only for sheets the user actually named (rule match); LLM-guessed sheets just steer the search
     vocab = get_vocabulary()
     named = set(vocab.match_sheets(question)) | set(vocab.match_sheets(plan.get("standalone_question") or ""))
     named_sheets = [sh for sh in plan.get("sheets") or [] if sh in named]
+    return {"specs": search_specs(plan, user_filters, named_sheets), "named_sheets": named_sheets}
+
+
+def retrieve(question: str, plan: dict, user_filters: dict | None = None, timings: dict | None = None,
+             usage: dict | None = None) -> list[dict]:
+    """The whole retrieval in one call (tests, eval). The chat graph runs the same steps as separate nodes so that
+    the searches run as parallel LangGraph branches."""
+    timings = timings if timings is not None else {}
+    prepared = prepare(question, plan, user_filters, timings)
+    t0 = time.perf_counter()
+    batches = run_specs(prepared["specs"])
+    timings["search"] = timings.get("search", 0) + round((time.perf_counter() - t0) * 1000)
+    return assemble(question, plan, user_filters, prepared["named_sheets"], batches, timings, usage)
+
+
+def assemble(question: str, plan: dict, user_filters: dict | None, named_sheets: list[str], batches: list[list[dict]],
+             timings: dict, usage: dict | None = None) -> list[dict]:
+    """Merge the hits of all searches, rerank, judge, pick the evidence and expand it."""
+    s = get_settings()
+    store = get_store()
+    queries = plan.get("search_queries") or [plan["standalone_question"]]
+    sim_queries = list(dict.fromkeys(queries + _rerank_queries(question, plan)))
 
     t0 = time.perf_counter()
-    cands = _cap(list(_collect(plan, user_filters, named_sheets).values()), s.max_rerank_candidates)
+    merged = merge_hits(batches)
+    for extra in _second_pass(merged, plan, user_filters):
+        merged = merge_hits([list(merged.values()), extra])
+    cands = _cap(list(merged.values()), s.max_rerank_candidates)
     timings["search"] = timings.get("search", 0) + round((time.perf_counter() - t0) * 1000)
     timings["candidates"] = len(cands)
     if not cands:
@@ -347,6 +445,7 @@ def retrieve(question: str, plan: dict, user_filters: dict | None = None, timing
     structured_on = plan.get("intent") in ("comparison", "list") and bool(named_sheets)
     sheet_rows = [u for u in ranked if structured_on and any(c.get("structured") for c in u["chunks"])][:MAX_STRUCTURED_ROWS]
     pool = [u for u in ranked if u not in sheet_rows][: s.judge_candidates]
+    n_subs = len({j for c in cands for j in (c.get("subs") or ())}) if s.per_sub_evidence else 0
 
     # ---- which evidence is relevant: LLM judge (quality mode) or score gates (fallback / offline)
     t0 = time.perf_counter()
@@ -363,10 +462,12 @@ def retrieve(question: str, plan: dict, user_filters: dict | None = None, timing
         selected = selected + exact
         selected = (_diversify(selected, s.top_k + 2, s.evidence_min_per_doc, s.evidence_max_doc_share)
                     if s.diversify_documents else selected[: s.top_k + 2])
+        selected = _reserve_per_sub(selected, pool, n_subs, s.top_k + 2, s.evidence_min_per_sub, lambda u: bool(u.get("grade")))
     else:
         selected = [u for u in pool if _passes_gates(u)]
         selected = (_diversify(selected, s.top_k, s.evidence_min_per_doc, s.evidence_max_doc_share)
                     if s.diversify_documents else selected[: s.top_k])
+        selected = _reserve_per_sub(selected, pool, n_subs, s.top_k, s.evidence_min_per_sub, _passes_gates)
         if structured_on and not selected and not any(_passes_gates(u) for u in sheet_rows):
             sheet_rows = []  # nothing relevant at all -> "not found"
     if not selected and not sheet_rows:
