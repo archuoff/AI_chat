@@ -3,10 +3,15 @@
     plan ──(chitchat)──────────────────────────────► smalltalk ──► END
       │
       ▼
-    retrieve ──► check ──(weak & first try)──► rewrite ──► retrieve
-                   │
-                   ▼ (good, or already retried)
-                 generate ──► END
+    prepare ══► search ×N (parallel branches: one per phrasing / sub-question / id) ══► merge
+                                                                                          │
+                              rewrite ◄──(weak & first try)── check ◄─────────────────────┘
+                                 │                               │
+                                 └──► prepare                    ▼ (good, or already retried)
+                                                              generate ──► END
+
+prepare embeds the phrasings once and lists the searches; every search is its own LangGraph branch (the Send API), so they run
+side by side; merge joins the hits, reranks, judges and builds the evidence.
 
 State is checkpointed per session (thread_id) in the database (PostgreSQL when DATABASE_URL selects it, else a SQLite file),
 so follow-up questions work across restarts.
@@ -24,13 +29,14 @@ from typing import Annotated, Any, TypedDict
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
 
 from ..config import get_settings
 from ..llm import add_usage, describe_llm_error, get_chat_model
-from ..rag import vision
+from ..rag import searchjob, vision
 from ..rag.answer import NOT_FOUND, answer, cited_sources
 from ..rag.planner import plan_llm
-from ..rag.retriever import retrieve
+from ..rag.retriever import assemble, prepare, run_search
 from ..rag.vocab import content_tokens
 
 log = logging.getLogger(__name__)
@@ -44,6 +50,7 @@ class ChatState(TypedDict, total=False):
     last_plan: dict  # plan of the previous turn (for follow-ups)
     evidence: list[dict]
     retried: bool
+    search_ref: str | None  # in-memory reference of the searches of this question (rag.searchjob)
     answer: str
     sources: list[dict]
     mode: str
@@ -109,16 +116,49 @@ def plan_node(state: ChatState) -> ChatState:
             "image_context": image_context, "notices": notices}
 
 
-def retrieve_node(state: ChatState) -> ChatState:
+def prepare_node(state: ChatState) -> ChatState:
     _emit({"type": "status", "step": "retrieve", "message": "Searching documents"})
     plan = state["plan"]
-    detail: dict = {}
-    usage = _usage(state)
-    evidence = retrieve(plan["standalone_question"], plan, state.get("filters"), detail, usage)
     timings = dict(state.get("timings") or {})
+    detail: dict = {}
+    prepared = prepare(plan["standalone_question"], plan, state.get("filters"), detail)
     for k, v in detail.items():
         timings[f"retrieve.{k}"] = timings.get(f"retrieve.{k}", 0) + v
-    return {"evidence": evidence, "timings": timings, "usage": usage}
+    ref = searchjob.start(plan["standalone_question"], plan, state.get("filters"), prepared["specs"], prepared["named_sheets"])
+    return {"search_ref": ref, "timings": timings}
+
+
+def fan_out(state: ChatState) -> list[Send]:
+    """One LangGraph branch per search: they run at the same time."""
+    ref = state["search_ref"]
+    n = searchjob.count(ref)
+    if not get_settings().parallel_search:
+        return [Send("search", {"ref": ref, "indexes": list(range(n))})]  # one branch runs them one after another
+    return [Send("search", {"ref": ref, "indexes": [i]}) for i in range(n)]
+
+
+def search_node(payload: dict) -> dict:
+    """One branch: run its search(es) and park the hits in memory (the graph state stays small)."""
+    for i in payload["indexes"]:
+        t0 = time.perf_counter()
+        hits = run_search(searchjob.spec(payload["ref"], i))
+        searchjob.add(payload["ref"], i, hits, round((time.perf_counter() - t0) * 1000))
+    return {}
+
+
+def merge_node(state: ChatState) -> ChatState:
+    """All searches are done: merge the hits, rerank, judge and expand them into evidence."""
+    job = searchjob.finish(state["search_ref"])
+    usage = _usage(state)
+    timings = dict(state.get("timings") or {})
+    if job is None:  # entry expired: nothing to merge
+        return {"evidence": [], "timings": timings, "usage": usage, "search_ref": None}
+    batches = [job["hits"].get(i, []) for i in range(len(job["specs"]))]
+    detail: dict = {"search_wall": round((time.time() - job["t0"]) * 1000), "search_busiest": max(job["ms"].values(), default=0)}
+    evidence = assemble(job["question"], job["plan"], job["filters"], job["named_sheets"], batches, detail, usage)
+    for k, v in detail.items():
+        timings[f"retrieve.{k}"] = timings.get(f"retrieve.{k}", 0) + v
+    return {"evidence": evidence, "timings": timings, "usage": usage, "search_ref": None}
 
 
 def rewrite_node(state: ChatState) -> ChatState:
@@ -145,7 +185,7 @@ def rewrite_node(state: ChatState) -> ChatState:
 
 
 def _route_after_check(state: ChatState) -> str:
-    """retrieve() only returns evidence judged relevant; nothing returned -> rephrase once, then answer."""
+    """merge only returns evidence judged relevant; nothing returned -> rephrase once, then answer."""
     weak = not state.get("evidence")
     return "rewrite" if weak and not state.get("retried") else "generate"
 
@@ -177,15 +217,19 @@ def smalltalk_node(state: ChatState) -> ChatState:
 def build_chat_graph(checkpointer=None):
     g = StateGraph(ChatState)
     g.add_node("plan", _timed("plan", plan_node))
-    g.add_node("retrieve", _timed("retrieve", retrieve_node))
+    g.add_node("prepare", _timed("retrieve", prepare_node))
+    g.add_node("search", search_node)
+    g.add_node("merge", _timed("retrieve", merge_node))
     g.add_node("rewrite", _timed("rewrite", rewrite_node))
     g.add_node("generate", _timed("generate", generate_node))
     g.add_node("smalltalk", smalltalk_node)
     g.add_edge(START, "plan")
-    g.add_conditional_edges("plan", lambda s: "smalltalk" if s["plan"]["intent"] == "chitchat" else "retrieve",
-                            ["smalltalk", "retrieve"])
-    g.add_conditional_edges("retrieve", _route_after_check, ["rewrite", "generate"])
-    g.add_edge("rewrite", "retrieve")
+    g.add_conditional_edges("plan", lambda s: "smalltalk" if s["plan"]["intent"] == "chitchat" else "prepare",
+                            ["smalltalk", "prepare"])
+    g.add_conditional_edges("prepare", fan_out, ["search"])
+    g.add_edge("search", "merge")
+    g.add_conditional_edges("merge", _route_after_check, ["rewrite", "generate"])
+    g.add_edge("rewrite", "prepare")
     g.add_edge("generate", END)
     g.add_edge("smalltalk", END)
     return g.compile(checkpointer=checkpointer)
@@ -236,7 +280,7 @@ def close_chat_memory() -> None:
 
 def turn_input(question: str, filters: dict | None, image_ref: str | None = None) -> ChatState:
     """Fields reset at the start of every turn (messages / last_plan persist via the checkpointer)."""
-    return {"question": question, "filters": filters, "retried": False, "evidence": [], "notices": [],
+    return {"question": question, "filters": filters, "retried": False, "search_ref": None, "evidence": [], "notices": [],
             "answer": "", "sources": [], "timings": {}, "usage": {}, "image_ref": image_ref, "image_context": ""}
 
 
