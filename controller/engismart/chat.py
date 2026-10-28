@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from controller.engismart.envelope import EnvelopeRoute
 from controller.engismart.helper import checked_images, public_result, record_turn, thread_id
-from controller.engismart.validator import ChatRequest
+from controller.engismart.validator import ChatRequest, RewindRequest
 from services.engismart.access import Principal, access_filters, current_user
 from services.engismart.graphs.chat_graph import (
     config_for,
@@ -19,6 +19,7 @@ from services.engismart.graphs.chat_graph import (
     get_chat_graph,
     history_of,
     result_of,
+    rewind_session,
     run_chat,
     turn_input,
 )
@@ -81,6 +82,12 @@ def chat_stream(req: ChatRequest, p: Principal = Depends(current_user)):
 @router.get("/chat/{session_id}/messages")
 def chat_messages(session_id: str, p: Principal = Depends(current_user)):
     return history_of(thread_id(p, session_id))
+
+
+@router.post("/chat/{session_id}/rewind")
+def chat_rewind(session_id: str, req: RewindRequest, p: Principal = Depends(current_user)):
+    """Edit and send: the conversation memory goes back to just after turn N, so the edited question is answered without the later turns."""
+    return {"kept_messages": rewind_session(thread_id(p, session_id), req.turns)}
 
 
 @router.delete("/chat/{session_id}")

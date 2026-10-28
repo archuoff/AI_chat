@@ -68,3 +68,7 @@ class ChatRequest(BaseModel):
 
 class UserDomainsUpdate(BaseModel):
     domains: list[str] = Field(default_factory=list, description="Domain ids this user may ask about; empty = all domains")
+
+
+class RewindRequest(BaseModel):
+    turns: int = Field(ge=0, le=500, description="Keep the first N questions with their answers; everything after is forgotten")
