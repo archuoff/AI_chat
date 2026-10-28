@@ -123,6 +123,8 @@ export class ApiService {
   }
   history = (sessionId: string) => this.get<{ role: 'user' | 'assistant'; content: string }[]>(`/chat/${encodeURIComponent(sessionId)}/messages`);
   deleteSession = (sessionId: string) => this.send('DELETE', `/chat/${encodeURIComponent(sessionId)}`);
+  /** Edit and send: the server forgets every question after the first `turns` ones before the edited question is sent. */
+  rewind = (sessionId: string, turns: number) => this.send<{ kept_messages: number }>('POST', `/chat/${encodeURIComponent(sessionId)}/rewind`, { turns });
 
   /**
    * POST /chat/stream (server-sent events) with HttpClient so the host adds the token like for every other call.

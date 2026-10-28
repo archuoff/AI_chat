@@ -25,7 +25,7 @@
       } @else {
         <div class="msgs">
           @for (m of messages(); track m.id) {
-            <eng-message [msg]="m" [active]="m.id === panelMsg()?.id && m.role === 'assistant'" (cite)="cite(m.id, $event)" (showSources)="showSources(m.id)" />
+            <eng-message [msg]="m" [active]="m.id === panelMsg()?.id && m.role === 'assistant'" (cite)="cite(m.id, $event)" [canEdit]="m.role === 'user' && !busy()" (edited)="editAndSend(m.id, $event)" (showSources)="showSources(m.id)" />
           }
         </div>
       }

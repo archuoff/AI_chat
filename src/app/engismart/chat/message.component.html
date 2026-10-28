@@ -8,7 +8,20 @@
         }
       </div>
     }
-    @if (m.content) { <div class="bubble">{{ m.content }}</div> }
+    @if (m.content && !editing()) {
+      <div class="q">
+        @if (canEdit()) { <button type="button" class="pen" (click)="startEdit()" title="Edit and send again" aria-label="Edit this question"><eng-icon name="edit" [size]="14" /></button> }
+        <div class="bubble">{{ m.content }}</div>
+      </div>
+    }
+    @if (editing()) {
+      <div class="editor">
+        <textarea #box rows="1" [ngModel]="draft()" (ngModelChange)="draft.set($event)" (keydown)="onKey($event)" aria-label="Edit your question"></textarea>
+        @if (m.images?.length) { <p>Attached images are not kept when you edit: add them again if they matter.</p> }
+        <p>Sending again removes the answers that followed this question.</p>
+        <div class="ea"><button type="button" class="eng-btn" (click)="editing.set(false)">Cancel</button><button type="button" class="eng-btn primary" (click)="send()" [disabled]="!draft().trim()">Send</button></div>
+      </div>
+    }
     @if (zoom(); as z) {
       <div class="zoom" (click)="zoom.set(null)" role="dialog" aria-label="Image"><img [src]="z" alt="Attached image" /></div>
     }

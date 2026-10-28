@@ -159,6 +159,21 @@ export class ChatPage implements OnInit {
     this.abort?.abort();
   }
 
+  /** Edit and send: forget this question and everything after it (here and in the server's memory), then ask the new text. */
+  async editAndSend(msgId: string, text: string) {
+    if (this.busy() || !text) return;
+    const msgs = this.messages();
+    const idx = msgs.findIndex((m) => m.id === msgId);
+    if (idx < 0) return;
+    const turns = msgs.slice(0, idx).filter((m) => m.role === 'user').length;
+    try {
+      await this.api.rewind(this.activeId(), turns);
+    } catch { /* the server could not rewind: the answer may still see the later questions */ }
+    this.messages.update((ms) => ms.slice(0, ms.findIndex((m) => m.id === msgId)));
+    this.highlight.set(null);
+    await this.ask(text);
+  }
+
   async ask(typed: string, attachments: Attachment[] = []) {
     if (this.busy()) return;
     const text = typed || (attachments.length ? 'What does this image show, and what do our documents say about it?' : '');

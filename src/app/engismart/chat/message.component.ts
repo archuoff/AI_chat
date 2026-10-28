@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, ElementRef, input, output, signal, viewChild } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import type { UIMessage } from '../core/types';
 import { IconComponent } from '../ui/icon.component';
 import { MarkdownComponent } from '../ui/markdown.component';
@@ -12,7 +13,7 @@ const STEP_LABEL: Record<string, string> = {
 
 @Component({
   selector: 'eng-message',
-  imports: [IconComponent, MarkdownComponent, ThinkingComponent],
+  imports: [FormsModule, IconComponent, MarkdownComponent, ThinkingComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './message.component.html',
   styleUrl: './message.component.scss',
@@ -20,8 +21,14 @@ const STEP_LABEL: Record<string, string> = {
 export class MessageComponent {
   readonly msg = input.required<UIMessage>();
   readonly active = input(false);
+  /** edit and send is offered only when true (not while an answer is being written) */
+  readonly canEdit = input(false);
   readonly cite = output<number>();
   readonly showSources = output<void>();
+  readonly edited = output<string>();
+  readonly editing = signal(false);
+  readonly draft = signal('');
+  readonly box = viewChild<ElementRef<HTMLTextAreaElement>>('box');
   readonly copied = signal(false);
   readonly zoom = signal<string | null>(null);
 
@@ -41,6 +48,40 @@ export class MessageComponent {
     return Object.entries(STEP_LABEL).filter(([k]) => t[k] !== undefined).map(([k, label]) => `${label}: ${(t[k] / 1000).toFixed(1)} s`).join('\n');
   });
   readonly seconds = computed(() => ((this.msg().elapsedMs ?? 0) / 1000).toFixed(1));
+
+  constructor() {
+    effect(() => {
+      this.draft();
+      const el = this.box()?.nativeElement;
+      if (!el) return;
+      el.style.height = '0px';
+      el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+    });
+    effect(() => {
+      const el = this.box()?.nativeElement;
+      if (el && this.editing()) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    });
+  }
+
+  startEdit() {
+    this.draft.set(this.msg().content);
+    this.editing.set(true);
+  }
+  send() {
+    const text = this.draft().trim();
+    if (!text) return;
+    this.editing.set(false);
+    this.edited.emit(text);
+  }
+  onKey(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      this.send();
+    } else if (e.key === 'Escape') this.editing.set(false);
+  }
 
   async copy() {
     try {
