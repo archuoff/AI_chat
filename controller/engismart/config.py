@@ -1,5 +1,4 @@
 import os
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -147,35 +146,33 @@ class Settings(BaseSettings):
     vision_price_input_per_1m: float = 0.0
     vision_price_output_per_1m: float = 0.0
 
-    # ---------------- accounts / auth
-    database_url: str = ""  # empty -> the platform's database (DATABASE_URL built from DATABASE_HOST ...); any SQLAlchemy URL works
-    db_pool_size: int = 5  # PostgreSQL connection pool (ignored for SQLite)
-    db_max_overflow: int = 10
-    db_pool_recycle_s: int = 1800
-
-    # ---------------- platform roles (tbl_application_roles.permission_alias) -> our three roles; the highest one wins
+    # ---------------- accounts / access
+    # The database is the platform's (utility.settings DATABASE_URL); Engismart owns no accounts, passwords or roles.
+    warm_up_on_start: bool = True  # open the search index in a background thread when the router is imported
+    access_cache_s: int = 30  # roles and domains of a person are re-read from the platform after this many seconds (0 = every call)
+    # platform roles (tbl_application_roles.permission_alias) -> our roles; the highest one wins. No role = plain user.
     role_developer: str = "engismart_developer"
     role_superuser: str = "engismart_superuser"
-    role_user: str = "engismart_user"
     admin_is_developer: bool = True  # a platform admin acts as developer in Engismart
+
+    # ---------------- uploads
+    max_upload_mb: int = 100  # per file (the platform's upload limit)
+    virus_scan: Literal["on", "off"] = "on"  # ClamAV through the platform (FILE_SCANNING_IP / FILE_SCANNING_PORT); off only for local tests
+
+    # ---------------- cost shown in tbl_langfuse_usage_logs.cost (per 1M tokens of the chat deployment; 0 = cost stays 0)
+    llm_price_input_per_1m: float = 0.0
+    llm_price_output_per_1m: float = 0.0
 
     @property
     def db_url(self) -> str:
-        """SQLAlchemy URL; plain postgres:// and postgresql:// are routed to the psycopg 3 driver."""
-        url = self.database_url.strip() or _platform_database_url() or f"sqlite:///{(DATA_DIR / 'engismart.db').as_posix()}"
-        for prefix in ("postgres://", "postgresql://"):
-            if url.startswith(prefix):
-                return "postgresql+psycopg://" + url[len(prefix):]
-        return url
+        """The platform's SQLAlchemy URL (DATABASE_URL built from DATABASE_HOST ... in utility.settings)."""
+        return _platform_database_url()
 
     @property
-    def psycopg_conninfo(self) -> str:
-        """The same database as a plain libpq URL (any SQLAlchemy driver suffix removed), for the chat-memory pool."""
-        return re.sub(r"^postgres(?:ql)?(?:\+\w+)?://", "postgresql://", self.db_url)
-
-    @property
-    def db_is_postgres(self) -> bool:
-        return self.db_url.startswith("postgresql")
+    def db_backend(self) -> str:
+        """mysql | postgresql | sqlite (the chat memory needs a different saver for each)."""
+        name = self.db_url.split(":", 1)[0].split("+", 1)[0].lower()
+        return "postgresql" if name in ("postgres", "postgresql") else name
 
     @property
     def chunks_collection(self) -> str:
@@ -205,11 +202,9 @@ class Settings(BaseSettings):
 
 
 def _platform_database_url() -> str:
-    """The platform's own DATABASE_URL (built from DATABASE_HOST / PORT / ... in utility.settings), when running inside it."""
-    try:
-        from utility.settings import settings as platform
-    except ImportError:  # running outside the platform project
-        return ""
+    """The platform's own DATABASE_URL (built from DATABASE_HOST / PORT / ... in utility.settings)."""
+    from utility.settings import settings as platform
+
     return platform.DATABASE_URL or ""
 
 

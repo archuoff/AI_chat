@@ -13,16 +13,19 @@
 prepare embeds the phrasings once and lists the searches; every search is its own LangGraph branch (the Send API), so they run
 side by side; merge joins the hits, reranks, judges and builds the evidence.
 
-State is checkpointed per session (thread_id) in the database (PostgreSQL when DATABASE_URL selects it, else a SQLite file),
-so follow-up questions work across restarts.
+State is checkpointed per session (thread_id) in the platform's database (MySQL, or PostgreSQL; a SQLite file only when the
+platform itself runs on SQLite), so follow-up questions work across restarts.
 Custom stream events (via get_stream_writer): {"type": "status" | "token" | "reset", ...}
 """
 from __future__ import annotations
 
 import logging
 import operator
+import re
 import sqlite3
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
@@ -236,20 +239,21 @@ def build_chat_graph(checkpointer=None):
 
 
 _graph = None
-_checkpointer: Any = None  # SqliteSaver | PostgresSaver
+_checkpointer: Any = None  # PyMySQLSaver | PostgresSaver | SqliteSaver
 _pool: Any = None  # PostgreSQL connection pool of the checkpointer
+_conn: Any = None  # the MySQL connection of the checkpointer
+_graph_lock = threading.Lock()
 
 
 def _postgres_checkpointer():
-    """LangGraph's PostgresSaver on its own small pool. It creates and owns its checkpoint tables (outside Alembic)."""
+    """LangGraph's PostgresSaver on its own small pool. It creates and owns its checkpoint tables."""
     from langgraph.checkpoint.postgres import PostgresSaver
     from psycopg.rows import dict_row
     from psycopg_pool import ConnectionPool
 
-    s = get_settings()
     global _pool
-    _pool = ConnectionPool(conninfo=s.psycopg_conninfo, min_size=1,
-                           max_size=max(s.db_pool_size, 2), open=True,
+    conninfo = re.sub(r"^postgres(?:ql)?(?:\+\w+)?://", "postgresql://", get_settings().db_url)
+    _pool = ConnectionPool(conninfo=conninfo, min_size=1, max_size=5, open=True,
                            kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row,
                                    "options": "-c timezone=UTC"})
     saver = PostgresSaver(_pool)
@@ -257,25 +261,57 @@ def _postgres_checkpointer():
     return saver
 
 
+def _mysql_checkpointer():
+    """langgraph-checkpoint-mysql's PyMySQLSaver (MySQL >= 8.0.19) on the platform's database. It creates and owns its tables
+    (checkpoints, checkpoint_blobs, checkpoint_writes, checkpoint_migrations). One connection, used one call at a time (the saver's
+    own lock); a dropped connection is re-opened before the next call."""
+    import pymysql
+    from langgraph.checkpoint.mysql.pymysql import PyMySQLSaver
+    from sqlalchemy.engine import make_url
+
+    global _conn
+    url = make_url(get_settings().db_url)
+    _conn = pymysql.connect(host=url.host or "localhost", port=url.port or 3306, user=url.username, password=url.password or "",
+                            database=url.database, autocommit=True, charset="utf8mb4")
+
+    class _ReconnectingSaver(PyMySQLSaver):
+        @contextmanager
+        def _cursor(self, *, pipeline: bool = False):
+            with self.lock:
+                self.conn.ping(reconnect=True)
+            with super()._cursor(pipeline=pipeline) as cur:
+                yield cur
+
+    saver = _ReconnectingSaver(_conn)
+    saver.setup()
+    return saver
+
+
 def get_chat_graph():
     global _graph, _checkpointer
     if _graph is None:
-        s = get_settings()
-        if s.db_is_postgres:
-            _checkpointer = _postgres_checkpointer()
-        else:
-            path = Path(s.chat_memory_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            _checkpointer = SqliteSaver(sqlite3.connect(str(path), check_same_thread=False))
-        _graph = build_chat_graph(_checkpointer)
+        with _graph_lock:
+            if _graph is None:
+                s = get_settings()
+                if s.db_backend == "mysql":
+                    _checkpointer = _mysql_checkpointer()
+                elif s.db_backend == "postgresql":
+                    _checkpointer = _postgres_checkpointer()
+                else:
+                    path = Path(s.chat_memory_path)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    _checkpointer = SqliteSaver(sqlite3.connect(str(path), check_same_thread=False))
+                _graph = build_chat_graph(_checkpointer)
     return _graph
 
 
 def close_chat_memory() -> None:
-    global _graph, _checkpointer, _pool
+    global _graph, _checkpointer, _pool, _conn
     if _pool is not None:
         _pool.close()
-    _graph = _checkpointer = _pool = None
+    if _conn is not None:
+        _conn.close()
+    _graph = _checkpointer = _pool = _conn = None
 
 
 def turn_input(question: str, filters: dict | None, image_ref: str | None = None) -> ChatState:

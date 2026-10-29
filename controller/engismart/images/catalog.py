@@ -1,4 +1,4 @@
-"""Picture catalog: files on disk + one database row per picture, and their search chunks."""
+"""Picture catalog: files on disk + one database row per picture (tbl_engismart_image), and their search chunks."""
 from __future__ import annotations
 
 import hashlib
@@ -6,16 +6,17 @@ import io
 import logging
 import shutil
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, delete, func, select
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import delete, func, select
+
+# tbl_engismart_image: the only table Engismart owns (class in the platform's models/orm_models.py)
+from models.orm_models import EngismartImage as DocImage
 
 from ..config import DATA_DIR
-from ..db import Base, SessionLocal, init_db, iso, utcnow
+from ..db import SessionLocal, iso, utcnow
 from ..ingestion.chunker import Chunk
 from ..ingestion.models import RawImage
 
@@ -33,30 +34,8 @@ _NS = uuid.UUID("2b6e4f0a-7c1d-4e8b-9a35-5d0c8f1e2a77")
 STATUSES = ("waiting", "described", "skipped", "unsupported", "failed")
 
 
-class DocImage(Base):
-    __tablename__ = "tbl_engismart_image"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    doc_id: Mapped[str] = mapped_column(String(64), index=True)
-    position: Mapped[int] = mapped_column(Integer, default=0)
-    sha256: Mapped[str] = mapped_column(String(64), index=True)
-    location: Mapped[dict] = mapped_column(JSON, default=dict)
-    context: Mapped[str] = mapped_column(Text, default="")
-    width: Mapped[int] = mapped_column(Integer, default=0)
-    height: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(16), default="waiting", index=True)
-    reason: Mapped[str] = mapped_column(String(160), default="")  # why skipped / unsupported / failed
-    manual: Mapped[bool] = mapped_column(Boolean, default=False)  # status set by a person: kept on re-processing
-    description: Mapped[str] = mapped_column(Text, default="")
-    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    described_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
 def _db():
-    """Session factory; init_db() has applied the migrations (the picture table is part of the baseline revision)."""
-    init_db()
+    """Session on the platform's engine."""
     return SessionLocal()
 
 

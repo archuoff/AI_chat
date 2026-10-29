@@ -356,6 +356,15 @@ class KGStore:
             }
 
 
+_store_lock = threading.Lock()
+
+
 @lru_cache
-def get_store() -> KGStore:
+def _build_store() -> KGStore:
     return KGStore()
+
+
+def get_store() -> KGStore:
+    """One store per process; a second caller waits while the first one is still opening it (the start-up thread and a first request)."""
+    with _store_lock:
+        return _build_store()

@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from services.engismart.config import get_settings
+from controller.engismart.config import get_settings
 
 
 class SearchRequest(BaseModel):
@@ -64,10 +64,6 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     filters: dict[str, Any] | None = None
     images: list[str] = Field(default_factory=list, description="Attached images as data URLs (png/jpeg/webp/gif, max 4 x 5 MB)")
-
-
-class UserDomainsUpdate(BaseModel):
-    domains: list[str] = Field(default_factory=list, description="Domain ids this user may ask about; empty = all domains")
 
 
 class RewindRequest(BaseModel):

@@ -4,13 +4,13 @@
     python tools/assemble.py --template <your GitLab clone> --in-place                              # add Engismart to a clone
 
 What it does (safe to run twice):
-  1. copies our folders  services/engismart  and  controller/engismart  into the project
-  2. edits six template files with the few lines Engismart needs:
+  1. copies our folder  controller/engismart  into the project
+  2. edits the template files with the few lines Engismart needs:
        router/router_outlet.py   mounts the Engismart routers
-       constants/constant.py     registers the module name
+       constants/constant.py     the module name (MODULE_NAMES) and the file label 'file' (CONSTANT)
+       models/orm_models.py      the class of Engismart's one table, EngismartImage (tbl_engismart_image)
        pyproject.toml            adds our packages (run `uv lock` afterwards)
        Dockerfile                libraries the PDF reader needs + a writable data folder for the non-root user
-       setup.py                  Cython must not compile our Alembic scripts (they are loaded as source files)
        .env.*.example            lists our settings
   3. prints what it changed. Nothing else in the project is touched.
 Only the Python standard library is used."""
@@ -24,10 +24,10 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
-OUR_DIRS = ("services/engismart", "controller/engismart")
+OUR_DIRS = ("controller/engismart",)
 SKIP = {".git", "__pycache__", ".venv", "node_modules", ".ruff_cache", ".pytest_cache"}
 
-ROUTER_IMPORT = "from controller.engismart import controller as engismart\n"
+ROUTER_IMPORT = "from controller.engismart import engismart_controller as engismart\n"
 ROUTER_BLOCK = '''
     # Engismart - knowledge assistant. Every request to /engismart is tracked under alias "engismart";
     # picture files are served without per-request tracking (a sheet preview loads many thumbnails).
@@ -39,9 +39,35 @@ ROUTER_BLOCK = '''
     app.include_router(engismart.file_router, prefix=f"{prefix}engismart")
 '''
 CONSTANT_LINE = "    'engismart':      'Engismart',\n"
+FILE_TYPE_LINE = "    'file': 'Document',  # Engismart: Excel / Word / PowerPoint / text documents (tbl_files.file_type has no finer value)\n"
+ORM_MARKER = "# ------------------ Table Creation ------------------ #"
+ORM_BLOCK = '''# ------------------ Engismart Picture Catalog ------------------ #
+class EngismartImage(Base):
+    """One picture found in an Engismart document (state, description, tokens). Create the table with docs/ENGISMART_TABLES.sql."""
+    __tablename__ = 'tbl_engismart_image'
+
+    id = Column(String(36), primary_key=True)
+    doc_id = Column(String(64), nullable=False, index=True)
+    position = Column(Integer, nullable=False, default=0)
+    sha256 = Column(String(64), nullable=False, index=True)
+    location = Column(JSON, nullable=False, default=dict)
+    context = Column(Text, nullable=False, default="")
+    width = Column(Integer, nullable=False, default=0)
+    height = Column(Integer, nullable=False, default=0)
+    status = Column(String(16), nullable=False, default="waiting", index=True)
+    reason = Column(String(160), nullable=False, default="")
+    manual = Column(Boolean, nullable=False, default=False)
+    description = Column(Text, nullable=False, default="")
+    input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+    described_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+'''
 DEPENDENCIES = [
-    "langgraph>=1.0", "langgraph-checkpoint-sqlite>=2.0", "langchain-core>=1.0", "langchain-openai>=1.0",
-    "langchain-text-splitters>=1.0", "azure-identity>=1.19", "alembic>=1.13", "psycopg[binary,pool]>=3.2",
+    "langgraph>=1.0", "langgraph-checkpoint-sqlite>=2.0", "langgraph-checkpoint-mysql>=3.0", "langchain-core>=1.0", "langchain-openai>=1.0",
+    "langchain-text-splitters>=1.0", "azure-identity>=1.19", "psycopg[binary,pool]>=3.2",
     "langgraph-checkpoint-postgres>=2.0", "qdrant-client>=1.12", "fastembed>=0.4", "pypdf>=5.0", "docling>=2.132",
     "docling-core>=2.50", "python-docx>=1.1", "python-pptx>=1.0", "openpyxl>=3.1", "pillow>=10.4",
 ]
@@ -90,19 +116,36 @@ def _router(text: str) -> str | None:
     if "engismart" in text:
         return None
     lines = text.splitlines(keepends=True)
-    last_import = max((i for i, l in enumerate(lines) if l.startswith(("from ", "import "))), default=-1)
+    last_import = max((i for i, ln in enumerate(lines) if ln.startswith(("from ", "import "))), default=-1)
     lines.insert(last_import + 1, ROUTER_IMPORT)
     out = "".join(lines)
     return out.rstrip("\n") + "\n" + ROUTER_BLOCK
 
 
 def _constants(text: str) -> str | None:
-    if "'engismart'" in text or '"engismart"' in text:
+    new = text
+    if "'engismart'" not in new and '"engismart"' not in new:
+        marker = "    # Infrastructure layers"
+        if marker in new:
+            new = new.replace(marker, CONSTANT_LINE + "\n" + marker, 1)
+        else:
+            new = new.replace("MODULE_NAMES = {\n", "MODULE_NAMES = {\n" + CONSTANT_LINE, 1)
+    if "'file':" not in new and '"file":' not in new:
+        new = new.replace("    'pdf': 'PDF',\n", "    'pdf': 'PDF',\n" + FILE_TYPE_LINE, 1)
+    return None if new == text else new
+
+
+def _orm(text: str) -> str | None:
+    """Adds the class of our one table. It needs Boolean and timezone, which the template's imports do not have."""
+    if "EngismartImage" in text:
         return None
-    marker = "    # Infrastructure layers"
-    if marker in text:
-        return text.replace(marker, CONSTANT_LINE + "\n" + marker, 1)
-    return text.replace("MODULE_NAMES = {\n", "MODULE_NAMES = {\n" + CONSTANT_LINE, 1)
+    new = text
+    if "Boolean" not in new.split("# ------------------ Models")[0]:
+        new = new.replace("from sqlalchemy import JSON,", "from sqlalchemy import JSON, Boolean,", 1)
+    new = new.replace("from datetime import datetime\n", "from datetime import datetime, timezone\n", 1) if "timezone" not in new.split("# ------------------ Models")[0] else new
+    if ORM_MARKER in new:
+        return new.replace(ORM_MARKER, ORM_BLOCK + ORM_MARKER, 1)
+    return new.rstrip("\n") + "\n\n\n" + ORM_BLOCK.rstrip("\n") + "\n"
 
 
 def _pyproject(text: str) -> str | None:
@@ -114,12 +157,6 @@ def _pyproject(text: str) -> str | None:
         return text
     block = "".join(f'    "{d}",\n' for d in DEPENDENCIES)
     return text[:end + 1] + block + text[end + 1:]
-
-
-def _setup(text: str) -> str | None:
-    if '"migrations"' in text:
-        return None
-    return text.replace("skip_files = [\n", 'skip_files = [\n    "migrations",  # Engismart: Alembic loads its scripts as source files\n', 1)
 
 
 def _dockerfile(text: str) -> str | None:
@@ -172,11 +209,13 @@ def assemble(template: Path, out: Path | None, in_place: bool, fix_cython: bool 
     for d in OUR_DIRS:
         report.append(f"copied   {d} ({_copy_tree(HERE / d, project / d)} files)")
     shutil.copy2(HERE / "overlay" / "START_HERE.md", project / "ENGISMART_START_HERE.md")
-    report.append(f"copied   docs -> docs/engismart ({_copy_tree(HERE / 'docs', project / 'docs' / 'engismart')} files), ENGISMART_START_HERE.md")
+    shutil.copy2(HERE / "ENGISMART_CHANGES.md", project / "ENGISMART_CHANGES.md")
+    report.append(f"copied   docs -> docs/engismart ({_copy_tree(HERE / 'docs', project / 'docs' / 'engismart')} files), "
+                  "ENGISMART_START_HERE.md, ENGISMART_CHANGES.md")
     _edit(project / "router" / "router_outlet.py", _router, "router/router_outlet.py", report)
     _edit(project / "constants" / "constant.py", _constants, "constants/constant.py", report)
+    _edit(project / "models" / "orm_models.py", _orm, "models/orm_models.py", report)
     _edit(project / "pyproject.toml", _pyproject, "pyproject.toml", report)
-    _edit(project / "setup.py", _setup, "setup.py", report)
     _edit(project / "Dockerfile", _dockerfile, "Dockerfile", report)
     if fix_cython:
         _edit(project / "setup.py", _cython_fix, "setup.py (Cython 3 fixes)", report)

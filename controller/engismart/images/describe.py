@@ -172,7 +172,7 @@ def start_job(user_id: int, doc_ids: list[str] | None = None, image_ids: list[st
 
 
 def _run(llm, todo: list[catalog.DocImage], user_id: int) -> None:
-    from .. import usage as usage_log
+    from .. import usage_log
     from ..store import get_store
 
     names = {d["doc_id"]: d["file_name"] for d in get_store().list_documents()}
