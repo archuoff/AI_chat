@@ -1,7 +1,7 @@
 import { HttpClient, HttpErrorResponse, HttpEventType, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { firstValueFrom, Observable } from 'rxjs';
-import { API_BASE } from './env';
+import { baseOf, CHAT_BASE } from './env';
 import type {
   ChatFinal, ChunkInfo, DescribeJob, DocImage, DocImages, DocumentInfo, Domain, DomainSuggestion, ExcelPreview, Health, ImageCounts,
   ImagesSummary, IngestResult, ManagedUser, Me, ParseOptions, StreamEvent, UploadCheck, UsageSummary,
@@ -17,17 +17,31 @@ export class ApiError extends Error {
   }
 }
 
+/** The readable text of an error body: our envelope {message}, or FastAPI's {detail: "text" | {message} | [{msg}]} (platform guards, bad bodies). */
+function messageOf(body: unknown): string {
+  if (!body || typeof body !== 'object') return '';
+  const b = body as { message?: unknown; detail?: unknown };
+  if (typeof b.message === 'string' && b.message) return b.message;
+  const d = b.detail;
+  if (typeof d === 'string') return d;
+  if (d && typeof d === 'object' && !Array.isArray(d) && typeof (d as { message?: unknown }).message === 'string') return (d as { message: string }).message;
+  if (Array.isArray(d) && d.length) {
+    const first = d[0] as { msg?: string; loc?: unknown[] };
+    const where = (first.loc ?? []).filter((x) => x !== 'body').join('.');
+    return `Invalid request${where ? ` (${where})` : ''}: ${first.msg ?? 'bad value'}`;
+  }
+  return '';
+}
+
 function toApiError(e: unknown): ApiError {
   if (e instanceof ApiError) return e;
   if (e instanceof HttpErrorResponse) {
-    const body = e.error as Partial<Envelope<unknown>> | string | null;
-    if (body && typeof body === 'object' && typeof body.message === 'string' && body.message) return new ApiError(body.message, e.status);
+    let body: unknown = e.error;
     if (typeof body === 'string' && body) {
-      try {
-        const parsed = JSON.parse(body);
-        if (parsed?.message) return new ApiError(String(parsed.message), e.status);
-      } catch { /* not JSON */ }
+      try { body = JSON.parse(body); } catch { /* not JSON */ }
     }
+    const text = messageOf(body);
+    if (text) return new ApiError(text, e.status);
     return new ApiError(e.status ? `${e.status} ${e.statusText}` : 'The server could not be reached', e.status);
   }
   return new ApiError((e as Error)?.message ?? String(e), 0);
@@ -55,10 +69,10 @@ export class ApiService {
   private get<T>(path: string, params?: Record<string, string | number | boolean | undefined>) {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(params ?? {})) if (v !== undefined) p = p.set(k, String(v));
-    return this.call(this.http.get<Envelope<T>>(`${API_BASE}${path}`, { params: p }));
+    return this.call(this.http.get<Envelope<T>>(`${baseOf(path)}${path}`, { params: p }));
   }
   private send<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown) {
-    return this.call(this.http.request<Envelope<T>>(method, `${API_BASE}${path}`, { body: body ?? (method === 'DELETE' ? undefined : {}) }));
+    return this.call(this.http.request<Envelope<T>>(method, `${baseOf(path)}${path}`, { body: body ?? (method === 'DELETE' ? undefined : {}) }));
   }
 
   // ---- who am I
@@ -90,7 +104,7 @@ export class ApiService {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('domain', domain);
-    return this.call(this.http.post<Envelope<UploadCheck>>(`${API_BASE}/documents/check`, fd));
+    return this.call(this.http.post<Envelope<UploadCheck>>(`${baseOf('/documents/check')}/documents/check`, fd));
   }
   async commitUpload(req: { check_id: string; intent: 'new' | 'update'; replaces?: string; domain: string; metadata: Record<string, unknown>; force: boolean; allow_duplicate: boolean }): Promise<IngestResult> {
     const res = await this.send<{ results: IngestResult[] }>('POST', '/documents/commit', req);
@@ -107,7 +121,7 @@ export class ApiService {
   cancelDescribe = () => this.send<DescribeJob>('POST', '/images/job/cancel', {});
   async imageBlob(id: string, thumb: boolean): Promise<Blob> {
     try {
-      return await firstValueFrom(this.http.get(`${API_BASE}/images/${id}/file`, { params: { thumb }, responseType: 'blob' }));
+      return await firstValueFrom(this.http.get(`${CHAT_BASE}/images/${id}/file`, { params: { thumb }, responseType: 'blob' }));
     } catch (e) {
       throw toApiError(e);
     }
@@ -119,7 +133,7 @@ export class ApiService {
     const now = Date.now();
     if (now - this.lastWarmup < 3000) return;
     this.lastWarmup = now;
-    this.http.post(`${API_BASE}/warmup`, {}).subscribe({ error: () => undefined });
+    this.http.post(`${CHAT_BASE}/warmup`, {}).subscribe({ error: () => undefined });
   }
   history = (sessionId: string) => this.get<{ role: 'user' | 'assistant'; content: string }[]>(`/chat/${encodeURIComponent(sessionId)}/messages`);
   deleteSession = (sessionId: string) => this.send('DELETE', `/chat/${encodeURIComponent(sessionId)}`);
@@ -148,7 +162,7 @@ export class ApiService {
         }
         if (last && text.slice(consumed).trim()) consumed = text.length;
       };
-      const sub = this.http.post(`${API_BASE}/chat/stream`, body, { observe: 'events', reportProgress: true, responseType: 'text' }).subscribe({
+      const sub = this.http.post(`${CHAT_BASE}/chat/stream`, body, { observe: 'events', reportProgress: true, responseType: 'text' }).subscribe({
         next: (ev) => {
           if (ev.type === HttpEventType.DownloadProgress) feed((ev as { partialText?: string }).partialText ?? '', false);
           else if (ev.type === HttpEventType.Response) {

@@ -8,7 +8,8 @@ Engismart itself is in `src/app/engismart/`. More notes: `docs/engismart/`.
 ## Your steps (about 20 minutes, no coding)
 1. `npm install` (first time it also refreshes `package-lock.json`).
 2. Open `src/environments/environment*.ts` and check the line `engismartUrl`: it is the address of the Engismart backend for that environment
-   (platform gateway + `/engismart/api/v1/engismart` is an assumption: ask the team for the real path).
+   (platform gateway + `/engismart/api/v1` is an assumption: ask the team for the real path). The remote adds `/engismart_chat` and
+   `/engismart_ingestion` to it itself (the backend's two modules).
 3. Build: `npm run build` (add `-- --configuration=staging` etc. as your pipeline does).
 4. Tell the host about the remote: in the host's `environment.remoteList` add `engismart: '<where it is deployed>/remoteEntry.json'`
    (the name must equal `name` in `federation.config.js`), and add a host route that loads it:

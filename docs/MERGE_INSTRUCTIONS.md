@@ -19,7 +19,7 @@ Node 20.19+ / 22 (same as your other Angular 20 remotes) and npm are enough. The
 * `src/app/app.routes.ts`: `export { engismartRoutes as routes } from './engismart/engismart.routes';`
 * `src/app/app.config.ts` (stand-alone use only): `provideHttpClient(withInterceptors([devTokenInterceptor]))` with the import from `./engismart/core/dev-token.interceptor`.
 * `src/app/app.html`: only `<router-outlet />`.
-* every `src/environments/environment*.ts`: add `engismartUrl: '<backend address>'` (the Engismart API including the module prefix, e.g. `https://host/engismart/api/v1/engismart`).
+* every `src/environments/environment*.ts`: add `engismartUrl: '<backend address>'` (the platform API address the two Engismart backend modules hang under, e.g. `https://host/engismart/api/v1`; the remote appends `/engismart_chat` and `/engismart_ingestion`).
 * `package.json`: add `"marked": "^15.0.0"` and `"dompurify": "^3.2.0"`.
 
 ## What the host must do

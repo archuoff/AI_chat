@@ -125,7 +125,7 @@ for (const f of readdirSync(join(project, 'src/environments')).filter((x) => x.e
     if (t.includes('engismartUrl')) return null;
     const m = t.match(/^\s*apiUrl:\s*['"]((?:https?:\/\/[^/'"]+)?)([^'"]*?)\/api\/v1\/?['"]/m);
     const base = m ? `${m[1]}${m[2]}` : '';
-    const line = `    // Engismart backend (assumed gateway path /engismart/api/v1 + module prefix /engismart: confirm with the platform team)\n    engismartUrl: '${base}/engismart/api/v1/engismart',\n`;
+    const line = `    // Engismart backend: the platform API root; the code appends /engismart_chat and /engismart_ingestion (gateway path is an assumption: confirm with the platform team)\n    engismartUrl: '${base}/engismart/api/v1',\n`;
     return t.replace(/(export const environment\s*=\s*\{\n)/, `$1${line}`);
   });
 }
