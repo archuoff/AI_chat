@@ -11,8 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ..llm import add_usage, describe_llm_error, get_chat_model
-from .vocab import content_tokens, get_vocabulary
+from controller.engismart.core.llm import add_usage, describe_llm_error, get_chat_model
+from controller.engismart.core.vocab import content_tokens, get_vocabulary
 
 log = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ KNOWN SHEETS (Excel tables, one row per item): {sheets}
 def needs_llm_planning(question: str, history: list[dict]) -> bool:
     """Quality mode ("always"): every question is planned by the LLM (sub-questions + synonyms).
     Speed mode ("follow-ups"): only follow-ups need it; rules plan the rest in ~0 ms."""
-    from ..config import get_settings
+    from controller.engismart.core.config import get_settings
 
     if get_settings().llm_planning == "always":
         return not _GREETING.match(question)

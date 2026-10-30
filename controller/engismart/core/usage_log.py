@@ -11,10 +11,9 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 
+from controller.engismart.core.config import get_settings
 from models.model import models
 from models.orm_models import LangfuseUsageLogs
-
-from .config import get_settings
 
 log = logging.getLogger(__name__)
 APPLICATION_NAME = "engismart"

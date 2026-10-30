@@ -12,10 +12,10 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Callable
 
-from ..config import get_settings
-from ..llm import add_usage, describe_llm_error, get_chat_model, get_embedder
-from .vision import image_parts
-from .vocab import content_tokens, entity_key
+from controller.engismart.chat.vision import image_parts
+from controller.engismart.core.config import get_settings
+from controller.engismart.core.llm import add_usage, describe_llm_error, get_chat_model, get_embedder
+from controller.engismart.core.vocab import content_tokens, entity_key
 
 log = logging.getLogger(__name__)
 

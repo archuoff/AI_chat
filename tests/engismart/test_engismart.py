@@ -117,17 +117,17 @@ def test_upload_needs_a_file(client):
 
 
 def test_virus_scanner_unreachable_refuses(client, monkeypatch):
-    from controller.engismart import file_upload
-    monkeypatch.setattr(file_upload.get_settings(), "virus_scan", "on")
-    monkeypatch.setattr(file_upload, "scan_file_content_for_virus", lambda b: (_ for _ in ()).throw(RuntimeError("Virus scan failed: down")))
+    from controller.engismart import validator
+    monkeypatch.setattr(validator.get_settings(), "virus_scan", "on")
+    monkeypatch.setattr(validator, "scan_file_content_for_virus", lambda b: (_ for _ in ()).throw(RuntimeError("Virus scan failed: down")))
     r = upload(client, "sue", "ok.xlsx", xlsx_bytes([["a"]]))
     assert r.status_code == 503 and "scanned" in r.json()["message"]
 
 
 def test_virus_found_is_rejected_and_logged(client, monkeypatch):
-    from controller.engismart import file_upload
-    monkeypatch.setattr(file_upload.get_settings(), "virus_scan", "on")
-    monkeypatch.setattr(file_upload, "scan_file_content_for_virus", lambda b: False)
+    from controller.engismart import validator
+    monkeypatch.setattr(validator.get_settings(), "virus_scan", "on")
+    monkeypatch.setattr(validator, "scan_file_content_for_virus", lambda b: False)
     r = upload(client, "sue", "bad.xlsx", xlsx_bytes([["a"]]))
     assert r.status_code == 422 and "Security threat" in r.json()["message"]
     from models.model import models
@@ -287,11 +287,11 @@ def test_delete_document(client, library):
 
 
 def test_error_returns_platform_500_envelope_and_audit(client, monkeypatch):
-    from controller.engismart import admin
+    from controller.engismart import controller as endpoints
 
     def boom():
         raise RuntimeError("store exploded")
-    monkeypatch.setattr(admin, "get_store", boom)
+    monkeypatch.setattr(endpoints, "get_store", boom)
     r = client.get("/engismart/domains", headers=H("sue"))
     assert r.status_code == 500 and r.json()["message"] == "Something went wrong!" and "store exploded" in r.json()["error"]
     from models.model import models

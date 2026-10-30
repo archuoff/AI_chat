@@ -59,7 +59,7 @@ class FakeSparse:
         return self._pair(text)
 
 
-import controller.engismart.llm as llm  # noqa: E402  (patched before store / rag import their names)
+import controller.engismart.core.llm as llm  # noqa: E402  (patched before store / rag import their names)
 
 _dense, _sparse = FakeDense(), FakeSparse()
 llm.get_embedder = lambda: _dense

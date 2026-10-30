@@ -27,7 +27,7 @@ HERE = Path(__file__).resolve().parent.parent
 OUR_DIRS = ("controller/engismart",)
 SKIP = {".git", "__pycache__", ".venv", "node_modules", ".ruff_cache", ".pytest_cache"}
 
-ROUTER_IMPORT = "from controller.engismart import engismart_controller as engismart\n"
+ROUTER_IMPORT = "from controller.engismart import controller as engismart\n"
 ROUTER_BLOCK = '''
     # Engismart - knowledge assistant. Every request to /engismart is tracked under alias "engismart";
     # picture files are served without per-request tracking (a sheet preview loads many thumbnails).

@@ -1,7 +1,7 @@
 -- Register Engismart in the platform. Run once per environment on the PLATFORM database (MySQL; the statements are plain SQL and also work on PostgreSQL).
 -- The platform's admin screens can do the same (Application + Roles); use whichever your team prefers.
--- Names must match the code: `engismart` = APP_ALIAS in controller/engismart/access.py, router_outlet.py (track_module_usage) and constants.py (MODULE_NAMES);
--- `engismart_<domain>` = DOMAIN_PREFIX + the ids in controller/engismart/domains.py; the role aliases = ROLE_DEVELOPER / ROLE_SUPERUSER in the .env file.
+-- Names must match the code: `engismart` = APP_ALIAS in controller/engismart/helper.py, router_outlet.py (track_module_usage) and constants.py (MODULE_NAMES);
+-- `engismart_<domain>` = DOMAIN_PREFIX + the ids in controller/engismart/core/domains.py; the role aliases = ROLE_DEVELOPER / ROLE_SUPERUSER in the .env file.
 
 -- 1. The application itself. Nobody gets into Engismart without it.
 INSERT INTO tbl_application (category, sub_category, application_name, application_alias, token, under_maintenance, status, created_on)

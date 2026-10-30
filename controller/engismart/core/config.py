@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BASE_DIR = Path(__file__).resolve().parents[2]  # project root (the folder that holds main.py)
+BASE_DIR = Path(__file__).resolve().parents[3]  # project root (the folder that holds main.py): controller/engismart/core/config.py
 # Same file the platform reads (.env.<ENVIRONMENT>); system environment variables win over it.
 _ENV_FILE = BASE_DIR / f".env.{os.getenv('ENVIRONMENT', 'development')}"
 

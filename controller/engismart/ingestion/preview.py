@@ -8,8 +8,8 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string, get_column_letter, range_boundaries
 
-from .excel import analyze_sheet
-from .incell import read_incell_pictures
+from controller.engismart.ingestion.excel import analyze_sheet
+from controller.engismart.ingestion.incell import read_incell_pictures
 
 MAX_CELL_CHARS = 220
 MAX_RECORDS_PER_TABLE = 300
@@ -24,7 +24,7 @@ def _pictures(doc_id: str | None, sheet: str, sh, max_rows: int, max_cols: int) 
     """The document's pictures that sit on this sheet, with the cell (or merged area) they belong to."""
     if not doc_id:
         return []
-    from ..images import catalog  # lazy: the catalog imports the ingestion package
+    from controller.engismart.ingestion.images import catalog  # lazy: the catalog imports the ingestion package
 
     out = []
     for img in catalog.list_images(doc_id):

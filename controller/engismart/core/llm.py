@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
 
-from .config import get_settings
+from controller.engismart.core.config import get_settings
 
 log = logging.getLogger(__name__)
 

@@ -5,45 +5,44 @@ version of this branch. It follows the platform's own pattern (see the drawing-v
 
 ## 1. Where everything is
 
-Everything of ours is inside **one folder**, `controller/engismart/`. There is no `services/` folder any more.
+Everything of ours is inside **one folder**, `controller/engismart/`, laid out like the platform's modules. There is no `services/` folder.
 
 ```
 controller/engismart/
-  engismart_controller.py   the two routers the platform mounts (router + file_router); starts the search index in the background
-  admin.py                  GET /me, /health, /domains
-  chat.py                   POST /chat, /chat/stream, /warmup; GET /chat/{id}/messages; POST /chat/{id}/rewind; DELETE /chat/{id}
-  documents.py              Manage knowledge: upload (check -> commit), library, corrections, access, domains, search
-  pictures.py               pictures of documents: list, describe, include/exclude, the picture file
-  helper.py                 run_endpoint (token -> role -> work in a thread pool -> envelope / 500 + audit log) and small helpers
-  validator.py              request bodies (Pydantic)
-  envelope.py               ok() / fail(): the platform's {status, data, message, error}
-  access.py                 who may do what: token -> user -> roles and domains from the platform -> Principal
-  file_upload.py            upload checks (extension, size, ClamAV, content) and the tbl_files row
-  usage_log.py              tokens / cost / latency -> the platform's tbl_langfuse_usage_logs
-  db.py                     the platform's engine (models/model.py) for our one table
-  config.py                 settings (.env), Azure, Qdrant, retrieval tuning
-  domains.py, classify.py   the six domains and the domain suggestion
-  llm.py, store.py          Azure OpenAI clients; Qdrant search index
-  uploads.py                files waiting between "check" and "commit"
-  rag/ ingestion/ graphs/ images/   retrieval, reading documents, the LangGraph chat and ingest flows, picture catalog and describing
+  controller.py     ALL endpoints (35): me / health / domains, chat, Manage knowledge (documents, pictures). Two routers: router (logged
+                    per request by track_module_usage) and file_router (picture files). Each endpoint only calls helper.run_endpoint.
+  helper.py         common helper functions: run_endpoint (the platform's pattern), who-may-do-what (Principal, roles, domains,
+                    access_filters), the ok()/fail() answer, small document / chat helpers, the tbl_files record of an upload
+  validator.py      all validators: Pydantic request bodies + validate_upload (extension, size, ClamAV, content matches the extension)
+  websocket.py      socket functions (empty for now; chat streams with server-sent events)
+  chat/             functions only, no endpoints: answering a question
+      planner.py retriever.py judge.py searchjob.py answer.py vision.py   the RAG steps
+      chat_graph.py                                                       the LangGraph flow + chat memory (MySQL / PostgreSQL / SQLite)
+  ingestion/        functions only, no endpoints: loading documents
+      excel.py incell.py pdf_docling.py documents.py tables.py cleaning.py chunker.py similarity.py preview.py models.py utils.py
+      ingest_graph.py   the LangGraph loading flow       uploads.py   files waiting between "check" and "commit"      classify.py   domain suggestion
+      images/           catalog.py (the picture table, tbl_engismart_image) and describe.py (the vision job)
+  core/             shared by chat/ and ingestion/ (so the two never import each other)
+      config.py (settings)  llm.py (Azure clients)  store.py (Qdrant)  domains.py  chunk.py  vocab.py  usage_log.py (tbl_langfuse_usage_logs)
 ```
+Rule: `chat/` and `ingestion/` import from `core/` only; `controller.py`, `helper.py` and `validator.py` import from all three.
 
 ## 2. Connections to the platform
 
 | Engismart needs | It uses (platform code or table) | Where in our code |
 |---|---|---|
-| Who is calling | `decode_token_and_get_user(request)` in `controller/common/common.py` (header `access-token`) | `access.authenticate` |
-| Roles, application rows | `_PermissionService.fetch_roles_and_permissions` in `middleware/authentication.py`; tables `tbl_users`, `tbl_application`, `tbl_application_roles`, user/group permission maps | `access.py` |
-| Domains of a person | platform application rows `engismart_<domain>` (no table of our own) | `access.domains_of` |
-| Audit log | `application_logs(...)` -> `tbl_chromosome_user_logs` | `helper._audit`, `file_upload._audit` |
+| Who is calling | `decode_token_and_get_user(request)` in `controller/common/common.py` (header `access-token`) | `helper.authenticate` |
+| Roles, application rows | `_PermissionService.fetch_roles_and_permissions` in `middleware/authentication.py`; tables `tbl_users`, `tbl_application`, `tbl_application_roles`, user/group permission maps | `helper.py` |
+| Domains of a person | platform application rows `engismart_<domain>` (no table of our own) | `helper.domains_of` |
+| Audit log | `application_logs(...)` -> `tbl_chromosome_user_logs` | `helper.audit` |
 | Per-request tracking | `track_module_usage("engismart")` in `router_outlet.py` | assemble tool |
-| Virus scan | `scan_file_content_for_virus` (ClamAV, `FILE_SCANNING_IP` / `FILE_SCANNING_PORT`) | `file_upload.check_upload` |
-| Uploaded file list | table `tbl_files` (`file_type` = `pdf` or `file`, label from `CONSTANT`) | `file_upload.record_upload` |
-| Tokens, cost, latency | table `tbl_langfuse_usage_logs` through `models().insert_record` | `usage_log.record` |
-| Database connection | `models/model.py` (`engine`, `models`) | `db.py`, `usage_log.py`, `file_upload.py` |
+| Virus scan | `scan_file_content_for_virus` (ClamAV, `FILE_SCANNING_IP` / `FILE_SCANNING_PORT`) | `validator.validate_upload` |
+| Uploaded file list | table `tbl_files` (`file_type` = `pdf` or `file`, label from `CONSTANT`) | `helper.record_upload` |
+| Tokens, cost, latency | table `tbl_langfuse_usage_logs` through `models().insert_record` | `core/usage_log.py` |
+| Database connection | `models/model.py` (`engine`, `models`) | `helper.py`, `core/usage_log.py`, `ingestion/images/catalog.py` |
 | Labels | `constants/constant.py`: `MODULE_NAMES['engismart']`, `CONSTANT['file']` | assemble tool |
-| Our one table | class `EngismartImage` in `models/orm_models.py` | `images/catalog.py` |
-| Outside the platform | Azure OpenAI (chat, embeddings, pictures), Qdrant (embedded folder or server), the disk under `STORAGE_ROOT/engismart` | `llm.py`, `store.py`, `config.py` |
+| Our one table | class `EngismartImage` in `models/orm_models.py` | `ingestion/images/catalog.py` |
+| Outside the platform | Azure OpenAI (chat, embeddings, pictures), Qdrant (embedded folder or server), the disk under `STORAGE_ROOT/engismart` | `core/llm.py`, `core/store.py`, `core/config.py` |
 
 Roles (platform role aliases, set in `.env`: `ROLE_DEVELOPER`, `ROLE_SUPERUSER`; a platform admin acts as developer):
 
@@ -53,14 +52,15 @@ Roles (platform role aliases, set in `.env`: `ROLE_DEVELOPER`, `ROLE_SUPERUSER`;
 | `engismart_superuser` | yes, every domain | yes | yes | no |
 | `engismart_developer` | yes, every domain | yes | yes | yes |
 
-A normal user must be given at least one domain (`engismart_<domain>` application row), otherwise every call answers 403
-"No domain is assigned to you yet". Superusers and developers need no domain row.
+`POST /documents/ingest-folder` (reads a server path) is for developers only. A normal user must be given at least one domain
+(`engismart_<domain>` application row), otherwise every call answers 403 "No domain is assigned to you yet".
+Superusers and developers need no domain row.
 
 ## 3. What changed compared with the first version
 
 **Moved**
-* `services/engismart/*` -> `controller/engismart/` (rag, ingestion, graphs, images, store, llm, config, domains, classify, uploads).
-* `controller/engismart/controller.py` -> `engismart_controller.py`; `images.py` (endpoints) -> `pictures.py` (it clashed with the `images/` package).
+* `services/engismart/*` -> `controller/engismart/` and split into `chat/`, `ingestion/` and `core/` (see section 1). The old endpoint files
+  (`admin.py`, `chat.py`, `documents.py`, `pictures.py`) are now one `controller.py`.
 
 **Rewritten in the platform's style**
 * Plain `APIRouter()` and `async def endpoint(request: Request)`; no `EnvelopeRoute`, no `Depends` auth.
@@ -69,18 +69,16 @@ A normal user must be given at least one domain (`engismart_<domain>` applicatio
   Answers keep the same envelope as before, so the frontends need no change for these endpoints.
 * Request bodies are read after the login check (like the reference); a wrong body answers 422 in the envelope.
 * No per-request `ensure_ready`: the search index opens once, in a background thread, when the router is imported
-  (a problem there is logged and never stops the platform; a request that comes earlier waits for it).
-* `get_store()` is now thread-safe (the start-up thread and a first request cannot open the embedded Qdrant folder twice).
+  (a problem there is logged and never stops the platform; a request that comes earlier waits for it). `get_store()` is thread-safe.
 
 **Removed**
-* Our tables `tbl_engismart_user_access`, `tbl_engismart_usage`, `tbl_engismart_upload_decision`, the Alembic migrations and `db.py` engine/session.
+* Our tables `tbl_engismart_user_access`, `tbl_engismart_usage`, `tbl_engismart_upload_decision`, the Alembic migrations and our own engine/session.
 * Endpoints `GET /users`, `GET /users/lookup`, `PUT /users/{id}/domains`, `GET /usage/summary` (Users & usage page). Domains are given in the platform;
   usage is read from `tbl_langfuse_usage_logs` (section 5). **The React and Angular screens that called them must be updated** (not part of this branch).
 * The setting `ROLE_USER` (no role = plain user) and the database settings (`DATABASE_URL`, pool sizes): the platform's database is used.
 
 **Added**
-* `file_upload.py`: extension -> size -> ClamAV -> content-matches-extension, for every format we read; `tbl_files` row and audit line after the commit.
-* `usage_log.py`: one row per chat question / classify / describe run in `tbl_langfuse_usage_logs`.
+* Upload checks (`validator.validate_upload`) and the `tbl_files` row (`helper.record_upload`); usage rows (`core/usage_log.py`).
 * MySQL chat memory (`langgraph-checkpoint-mysql`, `PyMySQLSaver`; MySQL >= 8.0.19). PostgreSQL and SQLite keep working.
 * Settings: `MAX_UPLOAD_MB`, `VIRUS_SCAN`, `ACCESS_CACHE_S`, `WARM_UP_ON_START`, `LLM_PRICE_INPUT_PER_1M`, `LLM_PRICE_OUTPUT_PER_1M`.
 

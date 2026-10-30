@@ -29,9 +29,9 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-from .incell import InCellPicture, read_incell_pictures
-from .models import Element, ParsedDocument, RawImage
-from .utils import is_textual, normalize_value, render_fields, unique_keys
+from controller.engismart.ingestion.incell import InCellPicture, read_incell_pictures
+from controller.engismart.ingestion.models import Element, ParsedDocument, RawImage
+from controller.engismart.ingestion.utils import is_textual, normalize_value, render_fields, unique_keys
 
 MAX_HEADER_ROWS = 4
 MAX_LISTED_CELLS = 200

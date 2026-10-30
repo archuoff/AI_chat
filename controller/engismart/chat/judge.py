@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ..llm import add_usage, describe_llm_error, get_chat_model
+from controller.engismart.core.llm import add_usage, describe_llm_error, get_chat_model
 
 log = logging.getLogger(__name__)
 

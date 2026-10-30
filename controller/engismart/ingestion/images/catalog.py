@@ -6,21 +6,37 @@ import io
 import logging
 import shutil
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm import sessionmaker
+
+from controller.engismart.core.chunk import Chunk
+from controller.engismart.core.config import DATA_DIR
+from controller.engismart.ingestion.models import RawImage
 
 # tbl_engismart_image: the only table Engismart owns (class in the platform's models/orm_models.py)
+from models.model import engine
 from models.orm_models import EngismartImage as DocImage
 
-from ..config import DATA_DIR
-from ..db import SessionLocal, iso, utcnow
-from ..ingestion.chunker import Chunk
-from ..ingestion.models import RawImage
-
 log = logging.getLogger(__name__)
+
+# Same engine and connection pool as the rest of the platform (models/model.py); objects stay readable after commit.
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def iso(dt: datetime | None) -> str | None:
+    """ISO-8601 with an explicit UTC offset (MySQL and SQLite return naive datetimes; browsers would read them as local time)."""
+    if dt is None:
+        return None
+    return (dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt).isoformat()
 
 IMAGE_DIR = DATA_DIR / "images"
 FULL_PX = 1600  # long side of the stored copy (what the vision model receives)
@@ -73,7 +89,7 @@ def _save(im: Image.Image, path: Path, px: int) -> None:
 
 
 def _repeat_limit() -> int:
-    from ..config import get_settings
+    from controller.engismart.core.config import get_settings
 
     return max(2, get_settings().clean_repeat_pages)
 
@@ -280,7 +296,7 @@ def image_chunks(doc_id: str, file_name: str, start_index: int) -> list[Chunk]:
 
 def index_described(doc_id: str) -> int:
     """(Re)write the document's picture chunks in Qdrant; returns how many."""
-    from ..store import get_store
+    from controller.engismart.core.store import get_store
 
     store = get_store()
     doc = store.get_document(doc_id)

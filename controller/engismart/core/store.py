@@ -18,10 +18,10 @@ from typing import Any
 
 from qdrant_client import QdrantClient, models
 
-from .config import get_settings
-from .domains import UNASSIGNED, validate_domain
-from .ingestion.chunker import Chunk
-from .llm import AzureEmbedder, get_embedder, get_sparse_embedder
+from controller.engismart.core.chunk import Chunk
+from controller.engismart.core.config import get_settings
+from controller.engismart.core.domains import UNASSIGNED, validate_domain
+from controller.engismart.core.llm import AzureEmbedder, get_embedder, get_sparse_embedder
 
 log = logging.getLogger(__name__)
 _DOC_NS = uuid.UUID("0b8e2f7e-3c55-4a8e-8f0e-6a0b3c1d2e4f")
@@ -203,7 +203,7 @@ class KGStore:
                         vectors.append(v)
                 if offset is None:
                     break
-        from .ingestion.similarity import mean_vector
+        from controller.engismart.ingestion.similarity import mean_vector
 
         return mean_vector(vectors)
 

@@ -19,8 +19,8 @@ import re
 from collections import Counter, defaultdict
 from typing import Any
 
-from ..config import get_settings
-from .models import Element, ParsedDocument, RawImage
+from controller.engismart.core.config import get_settings
+from controller.engismart.ingestion.models import Element, ParsedDocument, RawImage
 
 CLEAN_TYPES = {"pdf", "docx", "pptx"}
 MIN_UNITS = 4  # pages / slides needed before "repeats on many of them" means anything

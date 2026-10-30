@@ -6,9 +6,9 @@ import zipfile
 from collections import Counter
 from pathlib import Path
 
-from .models import Element, ParsedDocument, RawImage
-from .tables import dedupe_merged, table_to_elements
-from .utils import clean_text, normalize_value, render_fields
+from controller.engismart.ingestion.models import Element, ParsedDocument, RawImage
+from controller.engismart.ingestion.tables import dedupe_merged, table_to_elements
+from controller.engismart.ingestion.utils import clean_text, normalize_value, render_fields
 
 _PAGE_NO = re.compile(r"^(page\s*)?\d+(\s*(of|/)\s*\d+)?$|^page$", re.IGNORECASE)
 _DOCX_ARTIFACT = re.compile(r"^Comment\d+$")
@@ -23,13 +23,13 @@ def _media_count(path: Path, prefix: str) -> int:
 # ---------------------------------------------------------------- PDF
 def parse_pdf(path: Path) -> ParsedDocument:
     """Docling (layout + table models) when available; pypdf otherwise. A fallback is always reported as a warning."""
-    from ..config import get_settings
+    from controller.engismart.core.config import get_settings
 
     engine = get_settings().pdf_engine
     if engine == "pypdf":
         return _parse_pdf_pypdf(path)
     try:
-        from .pdf_docling import parse_pdf_docling
+        from controller.engismart.ingestion.pdf_docling import parse_pdf_docling
 
         return parse_pdf_docling(path)
     except Exception as exc:  # noqa: BLE001 - Docling missing, model folder wrong, conversion failed

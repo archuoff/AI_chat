@@ -1,7 +1,7 @@
 -- Engismart's only table: one row per picture found in a document (its state, description and tokens).
 -- Run once per environment on the PLATFORM database, BEFORE the first start (the platform does not create tables by itself:
 -- the create_all hook at the end of models/orm_models.py belongs to a FastAPI() that is never served).
--- The class is EngismartImage in models/orm_models.py (added by tools/assemble.py).
+-- The class is EngismartImage in models/orm_models.py (added by tools/assemble.py); the code is controller/engismart/ingestion/images/catalog.py.
 
 -- MySQL 8
 CREATE TABLE IF NOT EXISTS tbl_engismart_image (

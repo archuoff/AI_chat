@@ -13,7 +13,7 @@ import re
 import threading
 import uuid
 
-from ..llm import add_usage, describe_llm_error, get_chat_model
+from controller.engismart.core.llm import add_usage, describe_llm_error, get_chat_model
 
 log = logging.getLogger(__name__)
 

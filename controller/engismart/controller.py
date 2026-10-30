@@ -1,47 +1,206 @@
-"""Documents: upload (check -> commit), library, corrections, access, domains, search. Superuser and developer roles (Manage knowledge)."""
+"""Engismart endpoints: every route of the module is here. The routers are mounted by `router/router_outlet.py` at {PREFIX}engismart .
+
+  router       every call is logged by track_module_usage  (me, health, domains, chat, documents, pictures)
+  file_router  picture files: many calls per page, not logged
+
+Each endpoint is a thin function: it calls helper.run_endpoint, which does the platform's pattern (token -> user -> role -> the work in a
+thread pool -> envelope; on an error the audit log and the platform's 500 answer). The work is done by chat/ and ingestion/ (functions only).
+Chat answers, Manage knowledge (documents, pictures) and the small "me / health / domains" endpoints follow in that order.
+"""
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import shutil
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from starlette.datastructures import UploadFile
 
-from controller.engismart import file_upload, uploads, usage_log
-from controller.engismart.access import MANAGERS, Principal
-from controller.engismart.classify import suggest_domain
-from controller.engismart.config import get_settings
-from controller.engismart.graphs.ingest_graph import rebuild_signature, run_ingest
+from controller.engismart.chat import vision
+from controller.engismart.chat.chat_graph import (
+    config_for,
+    delete_session,
+    get_chat_graph,
+    history_of,
+    result_of,
+    rewind_session,
+    run_chat,
+    turn_input,
+)
+from controller.engismart.core import usage_log
+from controller.engismart.core.config import get_settings
+from controller.engismart.core.domains import UNASSIGNED, domains_payload
+from controller.engismart.core.llm import get_reranker, warm_connections
+from controller.engismart.core.store import doc_id_for, get_store
+from controller.engismart.core.vocab import invalidate_vocabulary
 from controller.engismart.helper import (
+    MANAGERS,
+    ROLES,
+    Principal,
+    access_filters,
     checked_domain,
+    checked_images,
     doc_or_404,
     light,
     parse_meta,
+    public_result,
+    record_turn,
+    record_upload,
     run_endpoint,
     source_or_409,
+    thread_id,
     visible_documents,
 )
-from controller.engismart.images import catalog as image_catalog
-from controller.engismart.ingestion import SUPPORTED_EXTENSIONS, parse_file, similarity
+from controller.engismart.ingestion import SUPPORTED_EXTENSIONS, parse_file, similarity, uploads
+from controller.engismart.ingestion.classify import suggest_domain
+from controller.engismart.ingestion.images import catalog as image_catalog
+from controller.engismart.ingestion.images import describe as image_describe
+from controller.engismart.ingestion.ingest_graph import rebuild_signature, refresh_images, run_ingest
 from controller.engismart.ingestion.preview import build_excel_preview
-from controller.engismart.rag.vocab import invalidate_vocabulary
-from controller.engismart.store import doc_id_for, get_store
 from controller.engismart.validator import (
     AccessUpdate,
     BulkDomainUpdate,
+    ChatRequest,
     CommitRequest,
+    DescribeRequest,
     DomainUpdate,
     FolderIngestRequest,
+    ImageUpdate,
     ParseOptionsUpdate,
+    RewindRequest,
     SearchRequest,
+    read_limited,
+    validate_upload,
 )
 
 log = logging.getLogger(__name__)
 router = APIRouter()
+file_router = APIRouter()
 
 
+# ================================================================== admin
+@router.get("/me")
+async def me(request: Request):
+    return await run_endpoint(request, lambda p: p.public(), what="/me")
+
+
+@router.get("/health")
+async def health(request: Request):
+    def work(p: Principal):
+        s = get_settings()
+        store = get_store()
+        out = {"status": "ok", "llm": "azure-openai" if s.llm_enabled else "offline", "documents": len(visible_documents(p))}
+        if p.is_developer:
+            reranker = get_reranker()
+            out.update({"llm_deployment": s.azure_openai_chat_deployment if s.llm_enabled else None,
+                        "embedding": store.embedder.name, "sparse": store.sparse.name,
+                        "reranker": reranker.name if reranker else None, "qdrant": store.location,
+                        "supported_extensions": SUPPORTED_EXTENSIONS, "chunks": store.stats()["chunks"]})
+        return out
+
+    return await run_endpoint(request, work, what="/health")
+
+
+@router.get("/domains")
+async def list_domains(request: Request):
+    """Superusers and developers get document counts; a normal user gets the domains they may ask about."""
+    def work(p: Principal):
+        allowed = p.allowed_domains()
+        if not p.manages_knowledge:
+            return [d for d in domains_payload() if allowed is None or d["id"] in allowed]
+        stats = get_store().domain_stats()
+        empty = {"documents": 0, "chunks": 0}
+        out = [{**d, **stats.get(d["id"], empty)} for d in domains_payload()]
+        out.append({"id": UNASSIGNED, "name": "Unassigned", "description": "Documents not yet classified.",
+                    **stats.get(UNASSIGNED, empty)})
+        return out
+
+    return await run_endpoint(request, work, what="/domains")
+
+
+# ================================================================== chat
+def _ms(started: float) -> int:
+    return round((time.perf_counter() - started) * 1000)
+
+
+@router.post("/warmup")
+async def warmup(request: Request):
+    """Called by the UI while the user types: pre-opens the Azure connections (see llm.warm_connections)."""
+    return await run_endpoint(request, lambda p: {"started": warm_connections()}, what="/warmup")
+
+
+@router.post("/chat")
+async def chat(request: Request):
+    def work(p: Principal, req: ChatRequest):
+        started = time.perf_counter()
+        res = run_chat(thread_id(p, req.session_id), req.message, access_filters(p, req.filters), checked_images(req.images))
+        record_turn(p, req.session_id, res, _ms(started))
+        return public_result(p, req.session_id, res)
+
+    return await run_endpoint(request, work, body=ChatRequest, what="/chat")
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: Request):
+    """Server-sent events: status / token / reset / final / error  (each line: `data: {json}`).
+    Not wrapped in the JSON envelope: it is a stream. Call it with fetch() and the `access-token` header."""
+    def work(p: Principal, req: ChatRequest):
+        thread = thread_id(p, req.session_id)
+        filters = access_filters(p, req.filters)
+        images = checked_images(req.images)
+
+        def events():
+            started = time.perf_counter()
+            graph = get_chat_graph()
+            ref = vision.hold(images)
+            try:
+                for mode, chunk in graph.stream(turn_input(req.message, filters, ref), config_for(thread),
+                                                stream_mode=["custom", "updates"]):
+                    if mode == "custom":
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                res = result_of(thread)
+                record_turn(p, req.session_id, res, _ms(started))
+                yield f"data: {json.dumps({'type': 'final', **public_result(p, req.session_id, res)}, default=str)}\n\n"
+            except Exception as e:  # noqa: BLE001 - report to the client instead of dropping the stream
+                log.exception("chat stream failed")
+                yield f"data: {json.dumps({'type': 'error', 'message': f'{type(e).__name__}: {e}'})}\n\n"
+            finally:
+                vision.release(ref)  # images are used for this question only
+
+        return StreamingResponse(events(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    return await run_endpoint(request, work, body=ChatRequest, what="/chat/stream")
+
+
+@router.get("/chat/{session_id}/messages")
+async def chat_messages(session_id: str, request: Request):
+    return await run_endpoint(request, lambda p: history_of(thread_id(p, session_id)), what="/chat/messages")
+
+
+@router.post("/chat/{session_id}/rewind")
+async def chat_rewind(session_id: str, request: Request):
+    """Edit and send: the conversation memory goes back to just after turn N, so the edited question is answered without the later turns."""
+    def work(p: Principal, req: RewindRequest):
+        return {"kept_messages": rewind_session(thread_id(p, session_id), req.turns)}
+
+    return await run_endpoint(request, work, body=RewindRequest, what="/chat/rewind")
+
+
+@router.delete("/chat/{session_id}")
+async def chat_delete(session_id: str, request: Request):
+    def work(p: Principal):
+        delete_session(thread_id(p, session_id))
+        return {"deleted": session_id}
+
+    return await run_endpoint(request, work, what="/chat/delete")
+
+
+# ================================================================== documents
 def _flag(value) -> bool:
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -71,8 +230,8 @@ async def upload_documents(request: Request):
         for f in _files_of(form, "files"):
             name = Path(f.filename or "upload").name
             try:
-                content = file_upload.read_limited(f.file, name)
-                file_upload.check_upload(p.id, name, content)
+                content = read_limited(f.file, name)
+                validate_upload(p.id, name, content)
             except HTTPException as e:
                 reports.append({"file_name": name, "status": "failed", "error": str(e.detail)})
                 continue
@@ -80,7 +239,7 @@ async def upload_documents(request: Request):
             dest.write_bytes(content)
             report = run_ingest(dest, file_name=name, meta=meta, force=force, domain=domain)
             if report["status"] != "failed":
-                file_upload.record_upload(p.id, name, dest, len(content))
+                record_upload(p.id, name, dest, len(content))
             reports.append(report)
         if not reports:
             raise HTTPException(422, "No file was uploaded (form field 'files').")
@@ -99,8 +258,8 @@ async def check_upload(request: Request):
             raise HTTPException(422, "No file was uploaded (form field 'file').")
         domain = form.get("domain") or ""
         name = Path(file.filename or "upload").name
-        content = file_upload.read_limited(file.file, name)
-        file_upload.check_upload(p.id, name, content)
+        content = read_limited(file.file, name)
+        validate_upload(p.id, name, content)
         digest, size = hashlib.sha256(content).hexdigest(), len(content)
         check_id, path = uploads.new_path(name)
         path.write_bytes(content)
@@ -161,7 +320,7 @@ async def commit_upload(request: Request):
         report = run_ingest(dest, file_name=name, meta=req.metadata, force=req.force, domain=domain, parsed=item.parsed)
         if report["status"] == "failed":
             return {"results": [report], **store.stats()}
-        file_upload.record_upload(p.id, name, dest, item.size_bytes)
+        record_upload(p.id, name, dest, item.size_bytes)
         if old is not None and old["doc_id"] != new_id and report["status"] == "indexed":
             try:
                 store.set_document_fields(new_id, {"replaces": old["doc_id"]})
@@ -370,3 +529,95 @@ async def delete_document(doc_id: str, request: Request):
 async def search(request: Request):
     return await run_endpoint(request, lambda p, req: get_store().search(req.query, req.top_k, req.filters, req.mode),
                               roles=MANAGERS, body=SearchRequest, what="/search")
+
+
+# ================================================================== pictures
+@router.get("/images/summary")
+async def images_summary(request: Request):
+    """Library-wide picture counts, whether describing is switched on, the running job and a cost estimate."""
+    def work(p: Principal):
+        return {"counts": image_catalog.summary(), "vision": image_describe.config(), "job": image_describe.status(),
+                "estimate": image_describe.estimate(image_catalog.waiting())}
+
+    return await run_endpoint(request, work, roles=MANAGERS, what="/images/summary")
+
+
+@router.get("/documents/{doc_id}/images")
+async def document_images(doc_id: str, request: Request):
+    def work(p: Principal):
+        doc_or_404(doc_id)
+        imgs = image_catalog.list_images(doc_id)
+        return {"images": [image_catalog.public(i) for i in imgs], "counts": image_catalog.summary(doc_id),
+                "vision": image_describe.config(),
+                "estimate": image_describe.estimate([i for i in imgs if i.status in ("waiting", "failed")])}
+
+    return await run_endpoint(request, work, roles=MANAGERS, what="/documents/images")
+
+
+@file_router.get("/images/{image_id}/file")
+async def image_file(image_id: str, request: Request, thumb: bool = False):
+    """The picture itself; same access rules as the document it belongs to (domain + confidential)."""
+    def work(p: Principal):
+        img = image_catalog.get_image(image_id)
+        doc = get_store().get_document(img.doc_id) if img else None
+        allowed = p.allowed_domains()
+        if (img is None or doc is None or (doc.get("confidential") and not p.sees_confidential)
+                or (allowed is not None and doc.get("domain") not in allowed)):
+            raise HTTPException(404, "picture not found")
+        path = image_catalog.file_path(img, thumb)
+        if not path.exists():
+            raise HTTPException(404, "picture file not available")
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+    return await run_endpoint(request, work, roles=ROLES, what="/images/file")
+
+
+@router.patch("/images/{image_id}")
+async def update_image(image_id: str, request: Request):
+    def work(p: Principal, req: ImageUpdate):
+        try:
+            return image_catalog.public(image_catalog.set_included(image_id, req.included))
+        except KeyError as e:
+            raise HTTPException(404, "picture not found") from e
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from e
+
+    return await run_endpoint(request, work, roles=MANAGERS, body=ImageUpdate, what="/images/update")
+
+
+@router.post("/images/describe")
+async def describe_images(request: Request):
+    def work(p: Principal, req: DescribeRequest):
+        try:
+            return image_describe.start_job(p.id, req.doc_ids, req.image_ids)
+        except (RuntimeError, ValueError) as e:
+            raise HTTPException(409, str(e)) from e
+
+    return await run_endpoint(request, work, roles=MANAGERS, body=DescribeRequest, what="/images/describe")
+
+
+@router.get("/images/job")
+async def describe_job(request: Request):
+    return await run_endpoint(request, lambda p: image_describe.status(), roles=MANAGERS, what="/images/job")
+
+
+@router.post("/images/job/cancel")
+async def cancel_describe_job(request: Request):
+    def work(p: Principal):
+        image_describe.cancel()
+        return image_describe.status()
+
+    return await run_endpoint(request, work, roles=MANAGERS, what="/images/job/cancel")
+
+
+@router.post("/documents/{doc_id}/images/extract")
+async def extract_document_images(doc_id: str, request: Request):
+    """Extract the pictures of an already indexed document from its stored original (text is not re-embedded)."""
+    def work(p: Principal):
+        doc_or_404(doc_id)
+        try:
+            return refresh_images(doc_id)
+        except FileNotFoundError as e:
+            raise HTTPException(409, "the original file is not stored; upload it again") from e
+
+    return await run_endpoint(request, work, roles=MANAGERS, what="/documents/images/extract")

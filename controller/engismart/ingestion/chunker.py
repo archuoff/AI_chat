@@ -14,36 +14,15 @@ from __future__ import annotations
 import math
 import re
 import uuid
-from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from ..config import get_settings
-from .models import Element, ParsedDocument
+from controller.engismart.core.chunk import Chunk
+from controller.engismart.core.config import get_settings
+from controller.engismart.ingestion.models import Element, ParsedDocument
 
 _NS = uuid.UUID("6f1c2a52-6d1e-4c41-9a43-0f3f3b0d5e11")
-
-
-@dataclass
-class Chunk:
-    id: str
-    doc_id: str
-    index: int
-    kind: str
-    text: str
-    context: str
-    section: list[str]
-    location: dict[str, Any]
-    fields: dict[str, Any] | None = None
-    title: str | None = None
-    extra: dict[str, Any] = field(default_factory=dict)
-    breadcrumb: list[str] = field(default_factory=list)  # the path to this chunk: file > sheet / headings > unit > row title
-    relations: dict[str, Any] = field(default_factory=dict)  # group, prev / next chunk in that group, parent, row_key (pictures)
-
-    @property
-    def embed_text(self) -> str:
-        return f"{self.context}\n{self.text}"
 
 
 def _location_label(loc: dict[str, Any]) -> str:

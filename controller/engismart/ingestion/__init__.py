@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from ..config import get_settings
-from .cleaning import clean_document
-from .documents import parse_csv, parse_docx, parse_pdf, parse_pptx, parse_text
-from .excel import parse_excel
-from .models import Element, ParsedDocument
+from controller.engismart.core.config import get_settings
+from controller.engismart.ingestion.cleaning import clean_document
+from controller.engismart.ingestion.documents import parse_csv, parse_docx, parse_pdf, parse_pptx, parse_text
+from controller.engismart.ingestion.excel import parse_excel
+from controller.engismart.ingestion.models import Element, ParsedDocument
 
 PARSERS = {
     ".xlsx": parse_excel,

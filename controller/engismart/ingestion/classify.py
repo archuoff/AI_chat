@@ -12,9 +12,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .domains import DOMAINS, UNASSIGNED
-from .llm import add_usage, describe_llm_error, get_chat_model
-from .store import get_store
+from controller.engismart.core.domains import DOMAINS, UNASSIGNED
+from controller.engismart.core.llm import add_usage, describe_llm_error, get_chat_model
+from controller.engismart.core.store import get_store
 
 log = logging.getLogger(__name__)
 

@@ -22,8 +22,8 @@ from collections import Counter
 from difflib import SequenceMatcher
 from typing import Any
 
-from ..config import get_settings
-from .models import ParsedDocument
+from controller.engismart.core.config import get_settings
+from controller.engismart.ingestion.models import ParsedDocument
 
 SKETCH_SIZE = 1024
 TOPIC_SAMPLES = 16

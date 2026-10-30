@@ -24,9 +24,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .models import Element, ParsedDocument, RawImage
-from .tables import table_to_elements
-from .utils import clean_text
+from controller.engismart.ingestion.models import Element, ParsedDocument, RawImage
+from controller.engismart.ingestion.tables import table_to_elements
+from controller.engismart.ingestion.utils import clean_text
 
 SCHEMA = "pdf-chunk-ready-v1"
 _NUMBERED = re.compile(r"^\s*((?:\d+\.)*\d+)[.)]?\s+\S")
@@ -37,7 +37,7 @@ _FURNITURE = {"page_header", "page_footer"}
 # ------------------------------------------------------------------ 1. conversion
 def _make_converter(flags: dict[str, bool]) -> tuple[Any, dict[str, Any]]:
     """Docling pipeline from the settings in backend/.env. `flags` switch off the optional models of a lighter attempt."""
-    from ..config import get_settings
+    from controller.engismart.core.config import get_settings
 
     cfg = get_settings()
     try:
@@ -119,7 +119,7 @@ def convert(path: str | Path) -> tuple[Any, dict[str, Any], Any]:
 
     If a model file is missing on this PC the optional models are dropped one step at a time (picture classifier, then the
     layout preset) and the document is told which ones; if the required models are missing too, the error names the stage."""
-    from ..config import get_settings
+    from controller.engismart.core.config import get_settings
 
     path = Path(path)
     with path.open("rb") as f:

@@ -13,11 +13,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from ..config import get_settings
-from ..llm import get_reranker
-from ..store import get_store
-from .judge import judge
-from .vocab import entity_key, get_vocabulary
+from controller.engismart.chat.judge import judge
+from controller.engismart.core.config import get_settings
+from controller.engismart.core.llm import get_reranker
+from controller.engismart.core.store import get_store
+from controller.engismart.core.vocab import entity_key, get_vocabulary
 
 log = logging.getLogger(__name__)
 

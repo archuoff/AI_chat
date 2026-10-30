@@ -31,10 +31,10 @@
    `langgraph-checkpoint-mysql` on MySQL >= 8.0.19: is that third-party package approved? May the database user create tables (the chat memory makes four)?
 3. May we add application rows `engismart_<domain>` to `tbl_application`? Do they show on the platform's home page or app lists? Who creates and assigns them in each environment?
 4. Does anything read `tbl_langfuse_usage_logs`? May we write one row per LLM call there? Price per 1M input / output tokens of the chat deployment?
-5. Upload: may the Word / PowerPoint / xlsm / txt / md formats be added next to csv/xlsx (we wrote `file_upload.py` for them; it can move to `common.py`)?
+5. Upload: may the Word / PowerPoint / xlsm / txt / md formats be added next to csv/xlsx (we wrote `validator.validate_upload` for them; it can move to `common.py`)?
    Is ClamAV reachable in every environment, and what is the file size limit? `tbl_files.file_type` is a fixed list: we store `pdf` and `file`.
 6. Endpoint style: we use `decode_token_and_get_user` + per-endpoint pattern through `helper.run_endpoint`, and keep Pydantic bodies for JSON. OK?
-   May the module folder have sub-folders (`rag/`, `ingestion/`, `graphs/`, `images/`)?
+   The module folder has `chat/`, `ingestion/` and `core/` sub-folders (functions only) next to `controller.py`, `helper.py`, `validator.py`, `websocket.py`. OK?
 7. Does the gateway buffer or time out the chat stream (server-sent events)? Does `BaseHTTPMiddleware` / SlowAPI keep it streaming?
 8. Which header does the host's interceptor send: `access-token` or `Authorization: Bearer` (the backend reads only `access-token`)?
 9. Is a Qdrant server available (the embedded folder can be opened by one process only)? Celery / RabbitMQ for long ingestion jobs (they run in the API process today)?

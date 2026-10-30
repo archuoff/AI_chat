@@ -5,7 +5,7 @@ from conftest import FakeDense  # noqa: F401  (forces the patched imports first)
 
 
 def test_backend_is_read_from_the_platform_url(monkeypatch):
-    from controller.engismart import config
+    from controller.engismart.core import config
     for url, backend in (("mysql+pymysql://u:p@h:3306/db", "mysql"), ("postgresql+psycopg2://u@h/db", "postgresql"),
                          ("postgres://u@h/db", "postgresql"), ("sqlite:///x.db", "sqlite")):
         monkeypatch.setattr(config, "_platform_database_url", lambda url=url: url)
@@ -14,8 +14,8 @@ def test_backend_is_read_from_the_platform_url(monkeypatch):
 
 def test_mysql_saver_pings_before_every_use_and_sets_up(monkeypatch):
     import pymysql
-    from controller.engismart import config
-    from controller.engismart.graphs import chat_graph as cg
+    from controller.engismart.core import config
+    from controller.engismart.chat import chat_graph as cg
 
     conn = MagicMock()
     cur = MagicMock()

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import Element
-from .utils import clean_text, render_fields, unique_keys
+from controller.engismart.ingestion.models import Element
+from controller.engismart.ingestion.utils import clean_text, render_fields, unique_keys
 
 
 def _has_header(rows: list[list[str]]) -> bool:

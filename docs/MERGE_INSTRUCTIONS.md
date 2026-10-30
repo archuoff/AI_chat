@@ -16,7 +16,7 @@ You have two ways. Both end in the same project. Python 3.10+ is enough; the too
 
 ## B. By hand (what the tool does)
 * Copy `controller/engismart` into the same place in your project.
-* `router/router_outlet.py`: add `from controller.engismart import engismart_controller as engismart` with the other imports, and at the end of
+* `router/router_outlet.py`: add `from controller.engismart import controller as engismart` with the other imports, and at the end of
   `register_router`:
   ```python
       app.include_router(engismart.router, prefix=f"{prefix}engismart", dependencies=[Depends(track_module_usage("engismart"))])

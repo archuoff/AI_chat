@@ -15,9 +15,9 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from ..config import get_settings
-from ..llm import add_usage, describe_llm_error, get_vision_model
-from . import catalog
+from controller.engismart.core.config import get_settings
+from controller.engismart.core.llm import add_usage, describe_llm_error, get_vision_model
+from controller.engismart.ingestion.images import catalog
 
 log = logging.getLogger(__name__)
 
@@ -172,8 +172,8 @@ def start_job(user_id: int, doc_ids: list[str] | None = None, image_ids: list[st
 
 
 def _run(llm, todo: list[catalog.DocImage], user_id: int) -> None:
-    from .. import usage_log
-    from ..store import get_store
+    from controller.engismart.core import usage_log
+    from controller.engismart.core.store import get_store
 
     names = {d["doc_id"]: d["file_name"] for d in get_store().list_documents()}
     by_doc: dict[str, list[catalog.DocImage]] = defaultdict(list)

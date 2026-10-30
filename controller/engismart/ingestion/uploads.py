@@ -14,8 +14,8 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import get_settings
-from .ingestion.models import ParsedDocument
+from controller.engismart.core.config import get_settings
+from controller.engismart.ingestion.models import ParsedDocument
 
 PENDING_TTL_S = 24 * 3600
 PARSE_CACHE_MAX_BYTES = 50 * 1024 * 1024  # larger files are parsed again at commit rather than held in memory
