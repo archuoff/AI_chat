@@ -5,6 +5,8 @@ version of this branch. It follows the platform's own pattern (see the drawing-v
 
 ## 1. Where everything is
 
+(How the pieces connect, step by step: `docs/CODE_MAP.md`, copied to `docs/engismart/CODE_MAP.md` in the project.)
+
 Everything of ours is inside **one folder**, `controller/engismart/`, laid out like the platform's modules. There is no `services/` folder.
 
 ```

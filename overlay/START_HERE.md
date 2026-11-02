@@ -2,7 +2,7 @@
 
 This folder is the Chromosome FastAPI template with Engismart added. Nothing else in the template was changed except these files:
 `router/router_outlet.py`, `constants/constant.py`, `models/orm_models.py` (one class), `pyproject.toml` (+ `uv.lock`), `Dockerfile`, `.env.*.example`, `.gitignore`.
-Engismart itself is in `controller/engismart/`. What it connects to and what changed: `ENGISMART_CHANGES.md`. More notes: `docs/engismart/`.
+Engismart itself is in `controller/engismart/`. What it connects to and what changed: `ENGISMART_CHANGES.md`. How the code is connected (read this first): `docs/engismart/CODE_MAP.md`. More notes: `docs/engismart/`.
 
 ## Your steps (about 20 minutes, no coding)
 1. **Environment file.** Copy `.env.development.example` to `.env.development` (or the file of your environment) and fill the normal platform values
