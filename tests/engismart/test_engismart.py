@@ -329,4 +329,8 @@ def test_the_router_module_starts_the_warm_up():
     import inspect
 
     from controller.engismart import controller as endpoints
-    assert "warm_up()" in inspect.getsource(endpoints).split("log = logging.getLogger")[-1]
+    try:
+        source = inspect.getsource(endpoints)
+    except (OSError, TypeError):
+        pytest.skip("compiled build: there is no source text to read")
+    assert "warm_up()" in source.split("log = logging.getLogger")[-1]
