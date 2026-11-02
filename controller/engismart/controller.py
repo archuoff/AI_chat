@@ -54,6 +54,7 @@ from controller.engismart.helper import (
     source_or_409,
     thread_id,
     visible_documents,
+    warm_up,
 )
 from controller.engismart.ingestion import SUPPORTED_EXTENSIONS, parse_file, similarity, uploads
 from controller.engismart.ingestion.classify import suggest_domain
@@ -621,3 +622,6 @@ async def extract_document_images(doc_id: str, request: Request):
             raise HTTPException(409, "the original file is not stored; upload it again") from e
 
     return await run_endpoint(request, work, roles=MANAGERS, what="/documents/images/extract")
+
+
+warm_up()  # opens the search index in the background when this module is imported; never delays or breaks the platform's start-up

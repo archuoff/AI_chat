@@ -307,3 +307,26 @@ def test_ingest_folder_is_for_developers_only(client, tmp_path):
     assert client.post("/engismart/documents/ingest-folder", headers=H("dev"), json={"path": empty}).json()["data"]["results"] == []
     r = client.post("/engismart/documents/ingest-folder", headers=H("dev"), json={"path": "/definitely/not/here"})
     assert r.status_code == 404 and r.json()["status"] is False
+
+
+def test_warm_up_opens_the_index_in_the_background(monkeypatch):
+    import threading
+
+    from controller.engismart import helper
+    opened = threading.Event()
+    monkeypatch.setattr(helper, "_ready", False)
+    monkeypatch.setattr(helper, "get_store", lambda: opened.set())
+
+    class On:
+        warm_up_on_start = True
+    monkeypatch.setattr(helper, "get_settings", lambda: On())
+    helper.warm_up()
+    assert opened.wait(5), "the index was not opened"
+    helper.warm_up()  # a second call does nothing
+
+
+def test_the_router_module_starts_the_warm_up():
+    import inspect
+
+    from controller.engismart import controller as endpoints
+    assert "warm_up()" in inspect.getsource(endpoints).split("log = logging.getLogger")[-1]

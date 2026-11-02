@@ -161,11 +161,6 @@ def load_principal(user_id: int, username: str) -> Principal:
     return p
 
 
-def clear_cache() -> None:
-    with _cache_lock:
-        _cache.clear()
-
-
 def authenticate(request: Request, roles: tuple[str, ...] = ROLES) -> Principal | JSONResponse:
     """Token -> user -> Principal. A JSONResponse (platform envelope) is returned for a bad token; HTTPException for no access.
     Blocking (database): call it in a thread pool."""
