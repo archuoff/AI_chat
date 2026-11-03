@@ -17,4 +17,6 @@ Engismart itself is in `controller/engismart/`. What it connects to and what cha
    (every upload is scanned by ClamAV: `VIRUS_SCAN=off` in `.env` only on a machine without it).
 6. **Commit** to a branch of your GitLab repo and open the merge request. `docs/engismart/NOTES_FOR_TEAM.md` has the questions for the team.
 
+No platform database to test with? See the last section of `docs/engismart/MERGE_INSTRUCTIONS.md` (a seed script and a test-token script).
+
 If a step fails, send me the error text.
