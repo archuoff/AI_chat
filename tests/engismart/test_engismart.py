@@ -334,3 +334,58 @@ def test_the_router_module_starts_the_warm_up():
     except (OSError, TypeError):
         pytest.skip("compiled build: there is no source text to read")
     assert "warm_up()" in source.split("log = logging.getLogger")[-1]
+
+
+# ---------------------------------------------------------------- every route checks the token
+def _engismart_routes():
+    from fastapi.routing import APIRoute
+
+    from main import fastapi_app
+    out = []
+    for r in fastapi_app.routes:
+        if isinstance(r, APIRoute) and r.path.startswith("/engismart"):
+            for m in sorted(r.methods - {"HEAD", "OPTIONS"}):
+                out.append((m, r.path))
+    return out
+
+
+def _fill(path: str) -> str:
+    import re
+    return re.sub(r"\{[^}]+\}", "x", path)
+
+
+def test_there_are_routes_to_check():
+    assert len(_engismart_routes()) >= 35
+
+
+def test_every_route_refuses_a_missing_token(client):
+    wrong = [(m, p) for m, p in _engismart_routes() if client.request(m, _fill(p)).status_code != 401]
+    assert not wrong, f"these routes answered without a token: {wrong}"
+
+
+def test_every_route_refuses_a_garbage_token(client):
+    bad = {"access-token": "not.a.jwt"}
+    wrong = [(m, p) for m, p in _engismart_routes() if client.request(m, _fill(p), headers=bad).status_code != 401]
+    assert not wrong, f"these routes accepted a garbage token: {wrong}"
+
+
+def test_every_route_refuses_an_expired_token(client):
+    from datetime import datetime, timedelta
+
+    from jose import jwt
+
+    from utility.settings import settings
+    expired = jwt.encode({"username": "dev", "token_version": 1, "exp": datetime.utcnow() - timedelta(minutes=5)}, settings.SECRET_KEY, settings.ALGORITHM)
+    wrong = [(m, p) for m, p in _engismart_routes() if client.request(m, _fill(p), headers={"access-token": expired}).status_code != 401]
+    assert not wrong, f"these routes accepted an expired token: {wrong}"
+
+
+def test_every_route_refuses_a_token_signed_with_another_key(client):
+    from datetime import datetime, timedelta
+
+    from jose import jwt
+
+    from utility.settings import settings
+    forged = jwt.encode({"username": "dev", "token_version": 1, "exp": datetime.utcnow() + timedelta(hours=1)}, "another-secret-key-0123456789", settings.ALGORITHM)
+    wrong = [(m, p) for m, p in _engismart_routes() if client.request(m, _fill(p), headers={"access-token": forged}).status_code != 401]
+    assert not wrong, f"these routes accepted a forged token: {wrong}"
