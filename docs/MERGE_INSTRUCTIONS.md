@@ -56,8 +56,11 @@ The platform picks the database driver from `DATABASE_PORT`: 5432 means PostgreS
 `DATABASE_*` values (port 5432) in `.env.development`, then from the project root:
 1. `uv run python docs/engismart/seed_local_test.py` creates the platform tables, `tbl_engismart_image`, the Engismart application rows, the two roles
    and five test users (password `Test@1234`; the script refuses to run when `tbl_users` already has rows).
-2. `uv run run.py`, open `http://localhost:8000/docs`.
+2. `uv run run.py` (development listens on port 8002).
 3. `uv run python docs/engismart/make_test_token.py dev_user` prints a token; send it in the header `access-token`.
+   Swagger (`/docs`) cannot call the Engismart endpoints (they read the header and the body by hand, like the platform's modules, so Swagger shows no
+   token or body fields). Use `docs/engismart/engismart_tester.html` instead: open it in a browser, paste the token, and use the buttons
+   (me, domains, upload check and commit, chat with streaming). If the browser reports a CORS error, set `ALLOWED_ORIGINS=*` in `.env.development`.
    (The template's own `/auth/login` cannot be used on a test machine: its router asks for a token before the login. On the real platform the token comes from the platform's login.)
 4. Check: `/engismart/me` for `dev_user` (developer) and `adas_user` (domain ADAS only); `nodomain` must answer 403; upload an Excel file with
    `/engismart/documents/check` then `/commit` as `super_user`; ask a question as `adas_user`.

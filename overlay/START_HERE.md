@@ -11,8 +11,9 @@ Engismart itself is in `controller/engismart/`. What it connects to and what cha
 2. **Packages.** `uv sync` (first time: long, Docling downloads PyTorch).
 3. **Tables and application.** Run `docs/engismart/ENGISMART_TABLES.sql`, then `docs/engismart/REGISTER_APPLICATION.sql` on the platform database. Then give yourself
    the application `Engismart` and the role `engismart_developer` (platform admin screens). A normal user also needs one or more `Engismart - <domain>` applications.
-4. **Start.** `uv run run.py`, open `http://localhost:<PORT>/docs`. Send your platform token in the header `access-token` and call
-   `GET /engismart/me` (shows your role) and `GET /engismart/health`.
+4. **Start.** `uv run run.py`, development listens on port 8002. Send your platform token in the header `access-token` and call
+   `GET /engismart/me` (shows your role) and `GET /engismart/health`. Swagger (`/docs`) cannot send that header to our endpoints: use
+   `docs/engismart/engismart_tester.html` (open it in a browser), or Postman or `curl.exe`.
 5. **Try an upload.** `POST /engismart/documents/check` with an Excel file, then `POST /engismart/documents/commit` with the returned `check_id`
    (every upload is scanned by ClamAV: `VIRUS_SCAN=off` in `.env` only on a machine without it).
 6. **Commit** to a branch of your GitLab repo and open the merge request. `docs/engismart/NOTES_FOR_TEAM.md` has the questions for the team.

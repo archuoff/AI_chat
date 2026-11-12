@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engismart API tester</title>
+<style>
+  body { font-family: Segoe UI, Arial, sans-serif; margin: 0; background: #f4f5f7; color: #1d2433; }
+  header { background: #1d2433; color: #fff; padding: 10px 16px; font-weight: 600; }
+  main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 40px; }
+  section { background: #fff; border: 1px solid #d9dce3; border-radius: 6px; padding: 12px 14px; margin: 12px 0; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  label { font-size: 12px; color: #555; display: block; margin: 6px 0 2px; }
+  input[type=text], select, textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #bfc4cf; border-radius: 4px; font: inherit; }
+  textarea { min-height: 54px; }
+  button { padding: 6px 12px; margin: 6px 6px 0 0; border: 0; border-radius: 4px; background: #2457d6; color: #fff; cursor: pointer; font: inherit; }
+  button.alt { background: #5b6477; }
+  button.danger { background: #b3261e; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 220px; }
+  pre { background: #10151f; color: #d7e0f0; padding: 10px; border-radius: 4px; overflow: auto; max-height: 280px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  #answer { background: #fff; color: #1d2433; border: 1px solid #d9dce3; min-height: 60px; max-height: 420px; font-size: 14px; }
+  #status { font-size: 12px; color: #2457d6; min-height: 16px; }
+  .src { font-size: 12px; margin: 2px 0; }
+  .bad { color: #b3261e; } .good { color: #1b7f3b; }
+  small { color: #666; }
+</style>
+</head>
+<body>
+<header>Engismart API tester <small style="color:#aab">(opens from a file; talks to your running backend)</small></header>
+<main>
+
+<section>
+  <h2>1. Connection</h2>
+  <div class="row">
+    <div><label>Backend address (no trailing slash)</label><input type="text" id="base" value="http://localhost:8002"></div>
+    <div><label>URL prefix of the platform (PREFIX in settings, default "/")</label><input type="text" id="prefix" value="/"></div>
+  </div>
+  <label>Access token (print one with: uv run python docs/engismart/make_test_token.py dev_user)</label>
+  <textarea id="token" placeholder="paste the token here"></textarea>
+  <button onclick="call('GET','health-root')" class="alt">Backend alive? (/health)</button>
+  <button onclick="call('GET','me')">/engismart/me</button>
+  <button onclick="call('GET','health')">/engismart/health</button>
+  <button onclick="call('GET','domains')">/engismart/domains</button>
+  <div id="conn"></div>
+</section>
+
+<section>
+  <h2>2. Upload a document (needs role superuser or developer)</h2>
+  <div class="row">
+    <div><label>File (xlsx, pdf, docx, pptx, csv, txt, md)</label><input type="file" id="file"></div>
+    <div><label>Domain</label>
+      <select id="domain"><option value="">(none)</option><option>adas</option><option>benchmarking</option><option>eds</option><option>lead-engineering</option><option>materials-net</option><option>supplier-database</option></select></div>
+  </div>
+  <button onclick="doCheck()">Step 1: check the file</button>
+  <button onclick="doCommit()">Step 2: commit as new</button>
+  <button class="alt" onclick="call('GET','documents')">List documents</button>
+  <div id="checkinfo"><small>check_id: <span id="cid">none</span></small></div>
+</section>
+
+<section>
+  <h2>3. Chat</h2>
+  <div class="row">
+    <div><label>Session id (a new one = a new conversation)</label><input type="text" id="session" value="t1"></div>
+  </div>
+  <label>Question</label>
+  <textarea id="msg">ultrasonic parking sensor field of view</textarea>
+  <button onclick="chatStream()">Send (streaming)</button>
+  <button class="alt" onclick="chatPlain()">Send (one answer)</button>
+  <button class="alt" onclick="call('GET','chat/'+enc(val('session'))+'/messages')">Show history</button>
+  <button class="danger" onclick="call('DELETE','chat/'+enc(val('session')))">Forget this session</button>
+  <div id="status"></div>
+  <pre id="answer"></pre>
+  <div id="sources"></div>
+</section>
+
+<section>
+  <h2>Last response</h2>
+  <pre id="out">(nothing yet)</pre>
+</section>
+
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const val = id => $(id).value.trim();
+const enc = encodeURIComponent;
+const url = path => val('base').replace(/\/+$/, '') + ('/' + val('prefix') + '/').replace(/\/+/g, '/') + path;
+const headers = (extra) => Object.assign({ 'access-token': val('token') }, extra || {});
+function show(x) { $('out').textContent = typeof x === 'string' ? x : JSON.stringify(x, null, 2); }
+function explain(status, body) {
+  if (status === 401) return 'No or invalid token. Make a new one with make_test_token.py.';
+  if (status === 403) return (body && (body.message || (body.detail && body.detail.message))) || 'Forbidden: check the role and domain rows of this user.';
+  return '';
+}
+async function call(method, what, opts) {
+  try {
+    const isRoot = what === 'health-root';
+    const target = isRoot ? val('base').replace(/\/+$/, '') + '/health' : url('engismart/' + what);
+    const r = await fetch(target, Object.assign({ method, headers: isRoot ? {} : headers() }, opts || {}));
+    const text = await r.text(); let body; try { body = JSON.parse(text); } catch { body = text; }
+    show({ http_status: r.status, hint: explain(r.status, body) || undefined, body });
+    return { r, body };
+  } catch (e) { show('Could not reach the backend: ' + e + '\nCheck the address, that the app is running, and that ALLOWED_ORIGINS allows this page (set ALLOWED_ORIGINS=* in .env.development).'); }
+}
+async function doCheck() {
+  const f = $('file').files[0]; if (!f) return show('Choose a file first.');
+  const fd = new FormData(); fd.append('file', f); fd.append('domain', val('domain'));
+  const res = await call('POST', 'documents/check', { body: fd });
+  const id = res && res.body && res.body.data && res.body.data.check_id; $('cid').textContent = id || 'none';
+}
+async function doCommit() {
+  const id = $('cid').textContent; if (!id || id === 'none') return show('Run step 1 first.');
+  await call('POST', 'documents/commit', { headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify({ check_id: id, domain: val('domain'), intent: 'new' }) });
+}
+function renderSources(list) {
+  $('sources').innerHTML = (list || []).map(s => '<div class="src"><b>[' + (s.n ?? '') + ']</b> ' + (s.file_name || '') + ' <small>' + (s.context || s.location ? JSON.stringify(s.location || s.context).slice(0, 120) : '') + '</small></div>').join('') || '<small>no sources</small>';
+}
+async function chatPlain() {
+  $('answer').textContent = ''; $('status').textContent = 'asking...';
+  const res = await call('POST', 'chat', { headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify({ session_id: val('session'), message: $('msg').value }) });
+  $('status').textContent = '';
+  const d = res && res.body && res.body.data; if (d) { $('answer').textContent = d.answer; renderSources(d.sources); }
+}
+async function chatStream() {
+  $('answer').textContent = ''; $('sources').innerHTML = ''; $('status').textContent = 'starting...';
+  let r;
+  try {
+    r = await fetch(url('engismart/chat/stream'), { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify({ session_id: val('session'), message: $('msg').value }) });
+  } catch (e) { $('status').textContent = ''; return show('Could not reach the backend: ' + e); }
+  if (!r.ok) { const t = await r.text(); $('status').textContent = ''; return show({ http_status: r.status, hint: explain(r.status), body: t }); }
+  const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '', text = '', last = null;
+  while (true) {
+    const { done, value } = await reader.read(); if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+      const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+      if (!chunk.startsWith('data: ')) continue;
+      let ev; try { ev = JSON.parse(chunk.slice(6)); } catch { continue; }
+      if (ev.type === 'status') $('status').textContent = ev.message;
+      else if (ev.type === 'token') { text += ev.text; $('answer').textContent = text; }
+      else if (ev.type === 'reset') { text = ''; $('answer').textContent = ''; }
+      else if (ev.type === 'final') { last = ev; $('answer').textContent = ev.answer || text; renderSources(ev.sources); $('status').textContent = 'done (' + (ev.mode || '') + ')'; }
+      else if (ev.type === 'error') { $('status').innerHTML = '<span class="bad">error: ' + ev.message + '</span>'; }
+    }
+  }
+  if (last) { const { answer, sources, ...rest } = last; show(rest); }
+}
+</script>
+</body>
+</html>
