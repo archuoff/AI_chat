@@ -3,7 +3,7 @@ import { ApiService } from '../core/api.service';
 import type { Attachment } from '../core/images';
 import { SessionService } from '../core/session.service';
 import { StorageService, uid } from '../core/storage.service';
-import type { Session, UIMessage } from '../core/types';
+import type { ServerTurn, Session, UIMessage } from '../core/types';
 import { IconComponent } from '../ui/icon.component';
 import { buildFilters, ComposerComponent } from './composer.component';
 import { MessageComponent } from './message.component';
@@ -70,9 +70,10 @@ export class ChatPage implements OnInit {
   }
 
   ngOnInit() {
-    this.sessions.set(this.storage.sessions());
+    this.sessions.set(this.storage.sessions()); // shown until the server answers; the server's list replaces it
     this.sourcesOpen.set(this.wide() && this.storage.pref('sourcesOpen', true));
     this.activeId.set(this.sessions()[0]?.id ?? uid());
+    this.loadSessions();
     this.api.domains().then((ds) => this.domainOptions.set(['all', ...ds.map((d) => d.id).filter((id) => id !== 'unassigned')])).catch(() => undefined);
     if (typeof matchMedia === 'function') {
       const mq = matchMedia(WIDE);
@@ -83,21 +84,33 @@ export class ChatPage implements OnInit {
     this.destroyRef.onDestroy(() => this.abort?.abort());
   }
 
-  /** load a conversation: local cache first (keeps sources), otherwise the server's memory */
+  /** The conversation list from the server. Offline, the list stays as it was (the browser copy). */
+  private loadSessions() {
+    this.api.sessions().then((list) => {
+      this.sessions.set(list.map((s) => ({ id: s.session_id, title: s.title, updatedAt: Date.parse(s.updated_on) || Date.now() })));
+    }).catch(() => undefined);
+  }
+
+  /** Opens a conversation: the server's copy (questions, answers, sources) is the truth; the browser copy shows while it loads. */
   private openSession(id: string) {
     this.abort?.abort();
     this.busy.set(false);
     this.highlight.set(null);
     this.activeMsg.set(null);
     const cached = this.storage.messages(id);
-    if (cached) {
-      this.messages.set(cached.map((m) => ({ ...m, streaming: false })));
-      return;
-    }
-    this.messages.set([]);
-    this.api.history(id).then((h) => {
-      if (this.activeId() === id && h.length) this.messages.set(h.map((m) => ({ id: uid(), role: m.role, content: m.content })));
-    }).catch(() => undefined);
+    this.messages.set(cached ? cached.map((m) => ({ ...m, streaming: false })) : []);
+    this.api.history(id).then((turns) => {
+      if (this.activeId() !== id || this.busy()) return; // the user moved on, or is asking a new question here
+      this.messages.set(this.toMessages(turns));
+    }).catch(() => undefined); // offline: the browser copy stays on screen
+  }
+
+  /** One stored turn is one question and one answer. */
+  private toMessages(turns: ServerTurn[]): UIMessage[] {
+    return turns.flatMap((t) => [
+      { id: uid(), role: 'user' as const, content: t.question },
+      { id: uid(), role: 'assistant' as const, content: t.answer, sources: t.sources ?? [], mode: t.mode ?? null },
+    ]);
   }
 
   select(id: string) {
@@ -216,6 +229,7 @@ export class ChatPage implements OnInit {
       update((m) => ({ ...m, streaming: false }));
       this.busy.set(false);
       this.abort = null;
+      this.loadSessions(); // the server has stored this answer: refresh the list from it
     }
   }
 }

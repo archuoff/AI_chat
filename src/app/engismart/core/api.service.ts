@@ -4,7 +4,7 @@ import { firstValueFrom, Observable } from 'rxjs';
 import { ENGISMART_BASE } from './env';
 import type {
   ChatFinal, ChunkInfo, DescribeJob, DocImage, DocImages, DocumentInfo, Domain, DomainSuggestion, ExcelPreview, Health, ImageCounts,
-  ImagesSummary, IngestResult, Me, ParseOptions, StreamEvent, UploadCheck,
+  ImagesSummary, IngestResult, Me, ParseOptions, ServerSession, ServerTurn, StreamEvent, UploadCheck,
 } from './types';
 
 /** The platform's answer envelope. */
@@ -129,7 +129,10 @@ export class ApiService {
     this.lastWarmup = now;
     this.http.post(`${ENGISMART_BASE}/warmup`, {}).subscribe({ error: () => undefined });
   }
-  history = (sessionId: string) => this.get<{ role: 'user' | 'assistant'; content: string }[]>(`/chat/${encodeURIComponent(sessionId)}/messages`);
+  /** The conversation list, from the server (most recent first). */
+  sessions = () => this.get<ServerSession[]>('/chat/sessions');
+  /** One conversation from the server: its questions, answers and sources. */
+  history = (sessionId: string) => this.get<ServerTurn[]>(`/chat/${encodeURIComponent(sessionId)}/history`);
   deleteSession = (sessionId: string) => this.send('DELETE', `/chat/${encodeURIComponent(sessionId)}`);
   /** Edit and send: the server forgets every question after the first `turns` ones before the edited question is sent. */
   rewind = (sessionId: string, turns: number) => this.send<{ kept_messages: number }>('POST', `/chat/${encodeURIComponent(sessionId)}/rewind`, { turns });

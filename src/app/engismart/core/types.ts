@@ -283,3 +283,9 @@ export type UIMessage = {
 }
 
 export type Session = { id: string; title: string; updatedAt: number }
+
+/** GET /chat/sessions: the conversation list kept by the server (title = first question). */
+export type ServerSession = { session_id: string; title: string; turns: number; started_on: string; updated_on: string }
+
+/** GET /chat/{id}/history: one answered question with its sources, as stored by the server. */
+export type ServerTurn = { turn_no: number; question: string; answer: string; sources: Source[]; mode: string | null; created_on: string }
