@@ -43,7 +43,7 @@ Rule: `chat/` and `ingestion/` import from `core/` only; `controller.py`, `helpe
 | Tokens, cost, latency | table `tbl_langfuse_usage_logs` through `models().insert_record` | `core/usage_log.py` |
 | Database connection | `models/model.py` (`engine`, `models`) | `helper.py`, `core/usage_log.py`, `ingestion/images/catalog.py` |
 | Labels | `constants/constant.py`: `MODULE_NAMES['engismart']`, `CONSTANT['file']` | assemble tool |
-| Our one table | class `EngismartImage` in `models/orm_models.py` | `ingestion/images/catalog.py` |
+| Our tables | classes `EngismartImage` and `ChatTurn` in `models/orm_models.py` | `ingestion/images/catalog.py`; `chat/history.py` |
 | Outside the platform | Azure OpenAI (chat, embeddings, pictures), Qdrant (embedded folder or server), the disk under `STORAGE_ROOT/engismart` | `core/llm.py`, `core/store.py`, `core/config.py` |
 
 Roles (platform role aliases, set in `.env`: `ROLE_DEVELOPER`, `ROLE_SUPERUSER`; a platform admin acts as developer):
@@ -86,7 +86,7 @@ Superusers and developers need no domain row.
 
 ## 4. The database
 
-* Our own table: **`tbl_engismart_image`** (one row per picture found in a document: state, description, tokens). It is not replaceable by a
+* Our own tables: **`tbl_engismart_image`** (one row per picture found in a document: state, description, tokens) and **`tbl_engismart_chat_turn`** (one row per answered question: question, answer, sources; the conversation list and history come from here, rewind and delete remove its rows). It is not replaceable by a
   platform table. Create it with `docs/ENGISMART_TABLES.sql` before the first start; the platform does not create tables by itself.
 * Chat memory: `langgraph-checkpoint-mysql` creates its own tables (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`,
   `checkpoint_migrations`) the first time the chat is used. The database user needs CREATE TABLE rights, or DevOps runs the setup once.

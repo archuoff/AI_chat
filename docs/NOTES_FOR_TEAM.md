@@ -21,7 +21,7 @@
 4. **Two permission modules.** `middleware/authentication.py` and `middleware/permissions_middleware.py` both define `UserContext` and the guards. We use
    `authentication._PermissionService` (roles and application rows); `track_module_usage` still uses the older copy.
 5b. **Tables are not created automatically.** The `@app.on_event("startup")` + `create_all` at the end of `models/orm_models.py` belongs to a `FastAPI()` that is never served,
-   and there is no Alembic or SQL in the template (the drawing validator's two tables have none either). Our one table comes with `docs/ENGISMART_TABLES.sql`. How do you apply table changes?
+   and there is no Alembic or SQL in the template (the drawing validator's two tables have none either). Our two tables (picture catalog, chat turns) come with `docs/ENGISMART_TABLES.sql`. How do you apply table changes?
 5. Every request to `/engismart` writes one row to `tbl_chromosome_user_logs` (`track_module_usage`). Picture files are served by a second router without it
    because a sheet preview loads many thumbnails.
 

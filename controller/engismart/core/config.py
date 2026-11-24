@@ -123,6 +123,9 @@ class Settings(BaseSettings):
     max_table_rows: int = 30  # list/comparison questions: rows pulled in from a qualifying table
     max_context_chars: int = 16000  # cap on evidence text sent to the LLM
     chat_memory_path: str = str(DATA_DIR / "chat_memory.sqlite")
+    # auto = the app creates / updates the chat-memory tables itself at the first chat (the database login needs CREATE / ALTER rights).
+    # off  = the tables were created by the platform team (docs/engismart/create_tables.py): the app only reads and writes rows.
+    chat_memory_setup: Literal["auto", "off"] = "auto"
     history_turns: int = 6
 
     # ---------------- document pictures (vision)

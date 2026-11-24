@@ -62,7 +62,7 @@ Three ideas explain most of the code:
 | 10 | `record_turn` -> `usage_log.record` | helper.py, core/usage_log.py | One row in tbl_langfuse_usage_logs (tokens, cost, latency, session id). |
 | 11 | `public_result` | helper.py | Removes the plan and the token counts unless the person is a developer. |
 
-Variants: `/chat/stream` runs the same graph with `graph.stream`, sending status / token / final events (server-sent events). `/chat/{id}/rewind` (`rewind_session`) goes back to an earlier turn so an edited question is answered without the later turns. `/chat/{id}` DELETE (`delete_session`) forgets a conversation.
+Variants: `/chat/stream` runs the same graph with `graph.stream`, sending status / token / final events (server-sent events). `/chat/{id}/rewind` (`rewind_session`, and `delete_turns_after` on the stored turns) goes back to an earlier turn so an edited question is answered without the later turns. `/chat/{id}` DELETE (`delete_session`, `delete_session_rows`) forgets a conversation. The list and the history come from `chat/history.py` (tbl_engismart_chat_turn), written after every answer by `helper.record_turn`.
 
 ## 4. Flow: someone uploads a document (Manage knowledge)
 

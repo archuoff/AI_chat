@@ -25,12 +25,12 @@ from controller.engismart.chat.chat_graph import (
     config_for,
     delete_session,
     get_chat_graph,
-    history_of,
     result_of,
     rewind_session,
     run_chat,
     turn_input,
 )
+from controller.engismart.chat.history import delete_session_rows, delete_turns_after, list_sessions, list_turns
 from controller.engismart.core import usage_log
 from controller.engismart.core.config import get_settings
 from controller.engismart.core.domains import UNASSIGNED, domains_payload
@@ -139,7 +139,7 @@ async def chat(request: Request):
     def work(p: Principal, req: ChatRequest):
         started = time.perf_counter()
         res = run_chat(thread_id(p, req.session_id), req.message, access_filters(p, req.filters), checked_images(req.images))
-        record_turn(p, req.session_id, res, _ms(started))
+        record_turn(p, req.session_id, req.message, res, _ms(started))
         return public_result(p, req.session_id, res)
 
     return await run_endpoint(request, work, body=ChatRequest, what="/chat")
@@ -164,7 +164,7 @@ async def chat_stream(request: Request):
                     if mode == "custom":
                         yield f"data: {json.dumps(chunk)}\n\n"
                 res = result_of(thread)
-                record_turn(p, req.session_id, res, _ms(started))
+                record_turn(p, req.session_id, req.message, res, _ms(started))
                 yield f"data: {json.dumps({'type': 'final', **public_result(p, req.session_id, res)}, default=str)}\n\n"
             except Exception as e:  # noqa: BLE001 - report to the client instead of dropping the stream
                 log.exception("chat stream failed")
@@ -178,16 +178,25 @@ async def chat_stream(request: Request):
     return await run_endpoint(request, work, body=ChatRequest, what="/chat/stream")
 
 
-@router.get("/chat/{session_id}/messages")
-async def chat_messages(session_id: str, request: Request):
-    return await run_endpoint(request, lambda p: history_of(thread_id(p, session_id)), what="/chat/messages")
+@router.get("/chat/sessions")
+async def chat_sessions(request: Request):
+    """The user's conversations, most recent first (title = first question)."""
+    return await run_endpoint(request, lambda p: list_sessions(p.id), what="/chat/sessions")
+
+
+@router.get("/chat/{session_id}/history")
+async def chat_history(session_id: str, request: Request):
+    """The questions, answers and sources of one conversation, from the database (the same list the browser shows)."""
+    return await run_endpoint(request, lambda p: list_turns(p.id, session_id), what="/chat/history")
 
 
 @router.post("/chat/{session_id}/rewind")
 async def chat_rewind(session_id: str, request: Request):
     """Edit and send: the conversation memory goes back to just after turn N, so the edited question is answered without the later turns."""
     def work(p: Principal, req: RewindRequest):
-        return {"kept_messages": rewind_session(thread_id(p, session_id), req.turns)}
+        kept = rewind_session(thread_id(p, session_id), req.turns)
+        delete_turns_after(p.id, session_id, req.turns)  # the list shows the same turns as the model remembers
+        return {"kept_messages": kept}
 
     return await run_endpoint(request, work, body=RewindRequest, what="/chat/rewind")
 
@@ -196,6 +205,7 @@ async def chat_rewind(session_id: str, request: Request):
 async def chat_delete(session_id: str, request: Request):
     def work(p: Principal):
         delete_session(thread_id(p, session_id))
+        delete_session_rows(p.id, session_id)
         return {"deleted": session_id}
 
     return await run_endpoint(request, work, what="/chat/delete")

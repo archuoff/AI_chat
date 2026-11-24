@@ -28,7 +28,9 @@ A normal user without any `engismart_<domain>` application row gets 403 on every
 | GET | /images/{id}/file?thumb= | all | the picture (same access rules as its document); **not** logged per request, not enveloped |
 | POST | /chat | all | one question, full answer |
 | POST | /chat/stream | all | the same as server-sent events (`status`, `token`, `reset`, `final`, `error`); **not** enveloped |
-| GET | /chat/{session}/messages , DELETE /chat/{session} | all | the user's own conversation |
+| GET | /chat/sessions | all | the user's conversation list (from the database; title = first question) |
+| GET | /chat/{session}/history | all | questions, answers and sources of one conversation (from the database) |
+| POST | /chat/{session}/rewind , DELETE /chat/{session} | all | rewind: forget the turns after N (memory and rows); delete: the conversation |
 | POST | /warmup | all | pre-open the Azure connections while the user types |
 
 Removed in this version: `/users`, `/users/lookup`, `PUT /users/{id}/domains`, `/usage/summary`. Domains are given in the platform; token usage is in `tbl_langfuse_usage_logs` (ENGISMART_CHANGES.md, section 5).

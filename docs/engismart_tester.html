@@ -67,7 +67,8 @@
   <textarea id="msg">ultrasonic parking sensor field of view</textarea>
   <button onclick="chatStream()">Send (streaming)</button>
   <button class="alt" onclick="chatPlain()">Send (one answer)</button>
-  <button class="alt" onclick="call('GET','chat/'+enc(val('session'))+'/messages')">Show history</button>
+  <button class="alt" onclick="call('GET','chat/sessions')">List conversations</button>
+  <button class="alt" onclick="call('GET','chat/'+enc(val('session'))+'/history')">Show history</button>
   <button class="danger" onclick="call('DELETE','chat/'+enc(val('session')))">Forget this session</button>
   <div id="status"></div>
   <pre id="answer"></pre>

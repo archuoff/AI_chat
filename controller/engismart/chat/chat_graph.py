@@ -257,7 +257,8 @@ def _postgres_checkpointer():
                            kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row,
                                    "options": "-c timezone=UTC"})
     saver = PostgresSaver(_pool)
-    saver.setup()
+    if get_settings().chat_memory_setup == "auto":
+        saver.setup()
     return saver
 
 
@@ -283,7 +284,8 @@ def _mysql_checkpointer():
                 yield cur
 
     saver = _ReconnectingSaver(_conn)
-    saver.setup()
+    if get_settings().chat_memory_setup == "auto":
+        saver.setup()
     return saver
 
 
@@ -340,10 +342,6 @@ def result_of(session_id: str) -> dict:
     return {"session_id": session_id, "answer": v.get("answer", ""), "sources": v.get("sources", []),
             "mode": v.get("mode"), "intent": plan.get("intent"), "plan": plan, "notices": v.get("notices", []),
             "timings": v.get("timings", {}), "usage": v.get("usage", {})}
-
-
-def history_of(session_id: str) -> list[dict]:
-    return get_chat_graph().get_state(config_for(session_id)).values.get("messages", [])
 
 
 def rewind_session(session_id: str, turns: int) -> int:

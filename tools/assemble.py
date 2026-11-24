@@ -65,6 +65,24 @@ class EngismartImage(Base):
 
 
 '''
+ORM_CHAT_BLOCK = '''# ------------------ Engismart Chat Turns ------------------ #
+class ChatTurn(Base):
+    """One answered question of an Engismart conversation, with its answer and sources (the list and the history of the UI).
+    The model's own memory is kept by LangGraph. Create the table with docs/ENGISMART_TABLES.sql."""
+    __tablename__ = 'tbl_engismart_chat_turn'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    session_id = Column(String(128), nullable=False, index=True)
+    turn_no = Column(Integer, nullable=False)
+    question = Column(Text, nullable=False, default="")
+    answer = Column(Text, nullable=False, default="")
+    sources = Column(Text, nullable=False, default="[]")
+    mode = Column(String(32), nullable=False, default="")
+    created_on = Column(DateTime, nullable=False, default=datetime.now)
+
+
+'''
 DEPENDENCIES = [
     "langgraph>=1.0", "langgraph-checkpoint-sqlite>=2.0", "langgraph-checkpoint-mysql>=3.0", "langchain-core>=1.0", "langchain-openai>=1.0",
     "langchain-text-splitters>=1.0", "azure-identity>=1.19", "psycopg[binary,pool]>=3.2",
@@ -136,16 +154,21 @@ def _constants(text: str) -> str | None:
 
 
 def _orm(text: str) -> str | None:
-    """Adds the class of our one table. It needs Boolean and timezone, which the template's imports do not have."""
-    if "EngismartImage" in text:
-        return None
+    """Adds our two table classes (picture catalog, chat turns), each only when missing. The picture class needs Boolean and timezone,
+    which the template's imports do not have."""
     new = text
-    if "Boolean" not in new.split("# ------------------ Models")[0]:
-        new = new.replace("from sqlalchemy import JSON,", "from sqlalchemy import JSON, Boolean,", 1)
-    new = new.replace("from datetime import datetime\n", "from datetime import datetime, timezone\n", 1) if "timezone" not in new.split("# ------------------ Models")[0] else new
-    if ORM_MARKER in new:
-        return new.replace(ORM_MARKER, ORM_BLOCK + ORM_MARKER, 1)
-    return new.rstrip("\n") + "\n\n\n" + ORM_BLOCK.rstrip("\n") + "\n"
+    if "class EngismartImage(Base)" not in new:
+        if "Boolean" not in new.split("# ------------------ Models")[0]:
+            new = new.replace("from sqlalchemy import JSON,", "from sqlalchemy import JSON, Boolean,", 1)
+        new = new.replace("from datetime import datetime\n", "from datetime import datetime, timezone\n", 1) if "timezone" not in new.split("# ------------------ Models")[0] else new
+    for marker, block in (("class EngismartImage(Base)", ORM_BLOCK), ("class ChatTurn(Base)", ORM_CHAT_BLOCK)):
+        if marker in new:
+            continue
+        if ORM_MARKER in new:
+            new = new.replace(ORM_MARKER, block + ORM_MARKER, 1)
+        else:
+            new = new.rstrip("\n") + "\n\n\n" + block.rstrip("\n") + "\n"
+    return None if new == text else new
 
 
 def _pyproject(text: str) -> str | None:

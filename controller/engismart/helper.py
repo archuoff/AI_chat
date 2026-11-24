@@ -38,7 +38,7 @@ from starlette.concurrency import run_in_threadpool
 
 from constants.constant import CONSTANT
 from controller.common.common import application_logs, decode_token_and_get_user
-from controller.engismart.chat import vision
+from controller.engismart.chat import history, vision
 from controller.engismart.core import usage_log
 from controller.engismart.core.config import get_settings
 from controller.engismart.core.domains import DOMAIN_IDS, validate_domain
@@ -325,8 +325,13 @@ def public_result(p: Principal, session_id: str, res: dict) -> dict:
     return out
 
 
-def record_turn(p: Principal, session_id: str, res: dict, latency_ms: int) -> None:
+def record_turn(p: Principal, session_id: str, question: str, res: dict, latency_ms: int) -> None:
+    """After an answer: the usage row (developers' cost report) and the turn in the conversation list. Never fails the answer."""
     usage_log.record(p.id, session_id=session_id, usage=res.get("usage"), latency_ms=latency_ms)
+    try:
+        history.save_turn(p.id, session_id, question, res)
+    except Exception:  # noqa: BLE001
+        log.exception("could not save the chat turn; the answer is still returned")
 
 
 # ------------------------------------------------------------------ uploads

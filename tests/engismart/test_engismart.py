@@ -245,14 +245,24 @@ def test_bad_bodies_use_the_envelope(client):
 def test_chat_history_rewind_delete(client, library):
     ask(client, "anil", "ultrasonic parking sensor field of view", session="h1")
     ask(client, "anil", "and the position of the sensor", session="h1")
-    msgs = client.get("/engismart/chat/h1/messages", headers=H("anil")).json()["data"]
-    assert len(msgs) >= 4
+    turns = client.get("/engismart/chat/h1/history", headers=H("anil")).json()["data"]
+    assert [t["turn_no"] for t in turns] == [1, 2]
+    assert turns[0]["question"] == "ultrasonic parking sensor field of view" and turns[0]["sources"]
+    # the list of conversations comes from the server
+    sessions = client.get("/engismart/chat/sessions", headers=H("anil")).json()["data"]
+    assert sessions and sessions[0]["session_id"] == "h1" and sessions[0]["turns"] == 2
+    assert sessions[0]["title"] == "ultrasonic parking sensor field of view"
+    # rewind to turn 1: the model's memory and the rows after turn 1 both go
     kept = client.post("/engismart/chat/h1/rewind", headers=H("anil"), json={"turns": 1}).json()["data"]["kept_messages"]
     assert kept == 2
-    # another user cannot read it
-    assert client.get("/engismart/chat/h1/messages", headers=H("priya")).json()["data"] == []
+    turns = client.get("/engismart/chat/h1/history", headers=H("anil")).json()["data"]
+    assert [t["turn_no"] for t in turns] == [1]
+    # another user sees nothing of it, in the list or the history
+    assert client.get("/engismart/chat/h1/history", headers=H("priya")).json()["data"] == []
+    assert all(s["session_id"] != "h1" for s in client.get("/engismart/chat/sessions", headers=H("priya")).json()["data"])
     assert client.delete("/engismart/chat/h1", headers=H("anil")).json()["data"] == {"deleted": "h1"}
-    assert client.get("/engismart/chat/h1/messages", headers=H("anil")).json()["data"] == []
+    assert client.get("/engismart/chat/h1/history", headers=H("anil")).json()["data"] == []
+    assert all(s["session_id"] != "h1" for s in client.get("/engismart/chat/sessions", headers=H("anil")).json()["data"])
 
 
 def test_chat_stream(client, library):
