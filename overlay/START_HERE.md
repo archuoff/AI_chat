@@ -3,13 +3,13 @@
 This folder is the Chromosome Angular remote template (`mfe-boilerplate-code`) with the Engismart screens added.
 The template was changed only in: `federation.config.js`, `src/app/app.routes.ts`, `src/app/app.config.ts` (a developer-only token helper),
 `src/app/app.html`, `src/app/app.scss`, `src/environments/*.ts` (one new line `engismartUrl`) and `package.json` (two libraries: `marked`, `dompurify`).
-Engismart itself is in `src/app/engismart/`. More notes: `docs/engismart/`.
+Engismart itself is in `src/app/engismart/`. The screens are Chat and Manage knowledge (superusers and developers). More notes: `docs/engismart/`.
 
 ## Your steps (about 20 minutes, no coding)
 1. `npm install` (first time it also refreshes `package-lock.json`).
-2. Open `src/environments/environment*.ts` and check the line `engismartUrl`: it is the address of the Engismart backend for that environment
-   (platform gateway + `/engismart/api/v1` is an assumption: ask the team for the real path). The remote adds `/engismart_chat` and
-   `/engismart_ingestion` to it itself (the backend's two modules).
+2. Open `src/environments/environment*.ts` and check the line `engismartUrl`: the backend address for that environment, including the
+   platform prefix (for example `http://localhost:8002` on a test PC, or the platform's address). The remote adds `/engismart` itself;
+   every Engismart endpoint is under that one address.
 3. Build: `npm run build` (add `-- --configuration=staging` etc. as your pipeline does).
 4. Tell the host about the remote: in the host's `environment.remoteList` add `engismart: '<where it is deployed>/remoteEntry.json'`
    (the name must equal `name` in `federation.config.js`), and add a host route that loads it:

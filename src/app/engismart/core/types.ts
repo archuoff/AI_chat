@@ -15,37 +15,6 @@ export type Role = 'user' | 'superuser' | 'developer'
 
 export type Me = { id: number; username: string; display_name: string; role: Role; domains: string[] }
 
-/** A platform user as Engismart knows them (accounts and roles are managed in the platform). */
-export type ManagedUser = {
-  id: number
-  username: string
-  display_name: string
-  role: Role
-  domains: string[]
-  is_active: boolean
-  questions_30d: number
-  tokens_30d: number
-  last_active: string | null
-}
-
-export type UsageSummary = {
-  days: number
-  totals: { questions: number; input_tokens: number; output_tokens: number; not_found: number; active_users: number; users: number }
-  per_user: {
-    user_id: number
-    username: string
-    display_name: string
-    role: string
-    questions: number
-    input_tokens: number
-    output_tokens: number
-    not_found: number
-    avg_latency_ms: number
-    last_active: string | null
-  }[]
-  daily: { date: string; questions: number; tokens: number }[]
-}
-
 export type DocumentInfo = {
   doc_id: string
   file_name: string

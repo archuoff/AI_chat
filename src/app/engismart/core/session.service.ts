@@ -9,7 +9,8 @@ export class SessionService {
   readonly me = signal<Me | null>(null);
   readonly error = signal<string | null>(null);
   readonly loading = signal(true);
-  readonly isDeveloper = computed(() => this.me()?.role === 'developer');
+  /** Manage knowledge: superusers and developers (the backend enforces the same rule). */
+  readonly canManage = computed(() => ['superuser', 'developer'].includes(this.me()?.role ?? ''));
 
   async load(): Promise<void> {
     this.loading.set(true);

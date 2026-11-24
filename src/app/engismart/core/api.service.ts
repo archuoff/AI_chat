@@ -1,10 +1,10 @@
 import { HttpClient, HttpErrorResponse, HttpEventType, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { firstValueFrom, Observable } from 'rxjs';
-import { baseOf, CHAT_BASE } from './env';
+import { ENGISMART_BASE } from './env';
 import type {
   ChatFinal, ChunkInfo, DescribeJob, DocImage, DocImages, DocumentInfo, Domain, DomainSuggestion, ExcelPreview, Health, ImageCounts,
-  ImagesSummary, IngestResult, ManagedUser, Me, ParseOptions, StreamEvent, UploadCheck, UsageSummary,
+  ImagesSummary, IngestResult, Me, ParseOptions, StreamEvent, UploadCheck,
 } from './types';
 
 /** The platform's answer envelope. */
@@ -69,22 +69,16 @@ export class ApiService {
   private get<T>(path: string, params?: Record<string, string | number | boolean | undefined>) {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(params ?? {})) if (v !== undefined) p = p.set(k, String(v));
-    return this.call(this.http.get<Envelope<T>>(`${baseOf(path)}${path}`, { params: p }));
+    return this.call(this.http.get<Envelope<T>>(`${ENGISMART_BASE}${path}`, { params: p }));
   }
   private send<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown) {
-    return this.call(this.http.request<Envelope<T>>(method, `${baseOf(path)}${path}`, { body: body ?? (method === 'DELETE' ? undefined : {}) }));
+    return this.call(this.http.request<Envelope<T>>(method, `${ENGISMART_BASE}${path}`, { body: body ?? (method === 'DELETE' ? undefined : {}) }));
   }
 
   // ---- who am I
   me = () => this.get<Me>('/me');
   health = () => this.get<Health>('/health');
   domains = () => this.get<Domain[]>('/domains');
-
-  // ---- users & usage (developer)
-  users = () => this.get<ManagedUser[]>('/users');
-  lookupUsers = (q: string) => this.get<ManagedUser[]>('/users/lookup', { q });
-  setUserDomains = (id: number, domains: string[]) => this.send<{ user_id: number; domains: string[] }>('PUT', `/users/${id}/domains`, { domains });
-  usage = (days = 30) => this.get<UsageSummary>('/usage/summary', { days });
 
   // ---- knowledge (developer)
   documents = () => this.get<DocumentInfo[]>('/documents');
@@ -104,7 +98,7 @@ export class ApiService {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('domain', domain);
-    return this.call(this.http.post<Envelope<UploadCheck>>(`${baseOf('/documents/check')}/documents/check`, fd));
+    return this.call(this.http.post<Envelope<UploadCheck>>(`${ENGISMART_BASE}/documents/check`, fd));
   }
   async commitUpload(req: { check_id: string; intent: 'new' | 'update'; replaces?: string; domain: string; metadata: Record<string, unknown>; force: boolean; allow_duplicate: boolean }): Promise<IngestResult> {
     const res = await this.send<{ results: IngestResult[] }>('POST', '/documents/commit', req);
@@ -121,7 +115,7 @@ export class ApiService {
   cancelDescribe = () => this.send<DescribeJob>('POST', '/images/job/cancel', {});
   async imageBlob(id: string, thumb: boolean): Promise<Blob> {
     try {
-      return await firstValueFrom(this.http.get(`${CHAT_BASE}/images/${id}/file`, { params: { thumb }, responseType: 'blob' }));
+      return await firstValueFrom(this.http.get(`${ENGISMART_BASE}/images/${id}/file`, { params: { thumb }, responseType: 'blob' }));
     } catch (e) {
       throw toApiError(e);
     }
@@ -133,7 +127,7 @@ export class ApiService {
     const now = Date.now();
     if (now - this.lastWarmup < 3000) return;
     this.lastWarmup = now;
-    this.http.post(`${CHAT_BASE}/warmup`, {}).subscribe({ error: () => undefined });
+    this.http.post(`${ENGISMART_BASE}/warmup`, {}).subscribe({ error: () => undefined });
   }
   history = (sessionId: string) => this.get<{ role: 'user' | 'assistant'; content: string }[]>(`/chat/${encodeURIComponent(sessionId)}/messages`);
   deleteSession = (sessionId: string) => this.send('DELETE', `/chat/${encodeURIComponent(sessionId)}`);
@@ -162,7 +156,7 @@ export class ApiService {
         }
         if (last && text.slice(consumed).trim()) consumed = text.length;
       };
-      const sub = this.http.post(`${CHAT_BASE}/chat/stream`, body, { observe: 'events', reportProgress: true, responseType: 'text' }).subscribe({
+      const sub = this.http.post(`${ENGISMART_BASE}/chat/stream`, body, { observe: 'events', reportProgress: true, responseType: 'text' }).subscribe({
         next: (ev) => {
           if (ev.type === HttpEventType.DownloadProgress) feed((ev as { partialText?: string }).partialText ?? '', false);
           else if (ev.type === HttpEventType.Response) {

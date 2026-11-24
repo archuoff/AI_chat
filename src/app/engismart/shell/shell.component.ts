@@ -4,7 +4,7 @@ import { SessionService } from '../core/session.service';
 import { IconComponent } from '../ui/icon.component';
 import { StylesComponent } from '../ui/styles.component';
 
-/** The frame of the remote: a slim tab bar (Chat / Manage / Users) inside the host's layout. Role comes from the backend. */
+/** The frame of the remote: a slim tab bar (Chat / Manage knowledge) inside the host's layout. Role comes from the backend. */
 @Component({
   selector: 'eng-shell',
   imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent, StylesComponent],

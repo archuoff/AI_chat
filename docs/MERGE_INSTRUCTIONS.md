@@ -19,7 +19,7 @@ Node 20.19+ / 22 (same as your other Angular 20 remotes) and npm are enough. The
 * `src/app/app.routes.ts`: `export { engismartRoutes as routes } from './engismart/engismart.routes';`
 * `src/app/app.config.ts` (stand-alone use only): `provideHttpClient(withInterceptors([devTokenInterceptor]))` with the import from `./engismart/core/dev-token.interceptor`.
 * `src/app/app.html`: only `<router-outlet />`.
-* every `src/environments/environment*.ts`: add `engismartUrl: '<backend address>'` (the platform API address the two Engismart backend modules hang under, e.g. `https://host/engismart/api/v1`; the remote appends `/engismart_chat` and `/engismart_ingestion`).
+* every `src/environments/environment*.ts`: add `engismartUrl: '<backend address>'` (the backend address including the platform prefix, e.g. `http://localhost:8002`; the remote appends `/engismart`).
 * `package.json`: add `"marked": "^15.0.0"` and `"dompurify": "^3.2.0"`.
 
 ## What the host must do
@@ -30,4 +30,5 @@ Node 20.19+ / 22 (same as your other Angular 20 remotes) and npm are enough. The
 
 ## Screens
 Chat (conversations, streaming answers, sources with pictures, image attachments), Manage knowledge (library, document detail, sheet preview with pictures in their cells and
-corrections, records, pictures, search chunks, add documents with "new or update" suggestions), Users & usage (usage per person, domain limits).
+corrections, records, pictures, search chunks, add documents with "new or update" suggestions) for superusers and developers. The Users & usage page was removed:
+domains are given in the platform, and usage is read from the database by developers.
