@@ -10,7 +10,7 @@
 
 ## Questions
 1. **Token.** Does the host interceptor attach `access-token` to requests whose URL starts with a configured API address? What is the pattern for a new service?
-2. **Backend address.** `engismartUrl` assumes `<origin>/<base>/engismart/api/v1` (gateway path); the remote adds `/engismart_chat` (chat, picture files) and `/engismart_ingestion` (library, users) itself. Please confirm per environment.
+2. **Backend address.** `engismartUrl` is the backend address including the platform prefix (e.g. `http://localhost:8002` on a test PC, or the platform's address). The remote adds `/engismart` to it, and every endpoint is under that one address. Ask the team for the real value per environment.
 3. **Remote path / name.** The template's `angular.json` has `baseHref`/`deployUrl` `/mf1/ml-accelerator/`. Which path does Engismart get, and what remote name does the host use?
 4. **Shared libraries.** `federation.config.js` shares everything as singleton with `strictVersion`. Do the host's Angular versions match (^20.1)?
 5. **Layout.** The remote has its own tab bar and needs a body of at least ~560 px height. Is there a host layout we should fit into (page title, breadcrumbs)?
